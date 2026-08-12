@@ -1,14 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Aster Video Downloader",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Download videos from any website.",
   "permissions": [
     "activeTab",
     "scripting",
     "downloads",
     "webRequest",
-    "nativeMessaging"
+    "nativeMessaging",
+    "cookies",
+    "sidePanel",
+    "storage"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -20,11 +23,20 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content-scripts/detector.js"],
-      "run_at": "document_end"
+      "run_at": "document_end",
+      "all_frames": true
     }
   ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content-scripts/yt-extractor.js"],
+      "matches": ["*://*.youtube.com/*"]
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
   "action": {
-    "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "assets/icon.png",
       "32": "assets/icon.png",

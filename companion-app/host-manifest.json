@@ -1,0 +1,9 @@
+{
+  "name": "com.aster.downloader",
+  "description": "Aster Video Downloader Companion App",
+  "path": "run.bat", 
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://ipdhamopmeingcknclddnfgoghhipnak/"
+  ]
+}
