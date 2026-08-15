@@ -2,6 +2,8 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { spawn } = require('child_process');
+const { getBinFolder } = require('./paths');
 
 function updateYtDlp(onProgress) {
   return new Promise((resolve, reject) => {
@@ -55,19 +57,38 @@ function updateYtDlp(onProgress) {
 
 function downloadBinary(url, assetName, onProgress) {
   return new Promise((resolve, reject) => {
-    const binFolder = path.join(__dirname, '..', 'bin');
-    if (!fs.existsSync(binFolder)) fs.mkdirSync(binFolder);
+    const binFolder = getBinFolder();
+    if (!fs.existsSync(binFolder)) {
+      try { fs.mkdirSync(binFolder, { recursive: true }); } catch (e) {}
+    }
     
     const destPath = path.join(binFolder, assetName);
     const tempPath = destPath + '.new';
     
+    if (fs.existsSync(tempPath)) {
+      try { fs.unlinkSync(tempPath); } catch (e) {}
+    }
+    
     const file = fs.createWriteStream(tempPath);
     
-    https.get(url, (res) => {
+    const req = https.get(url, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         // Redirecionamentos de download (comum no github)
-        file.close();
-        return resolve(downloadBinary(res.headers.location, assetName, onProgress));
+        file.close(() => {
+          try { fs.unlinkSync(tempPath); } catch (e) {}
+          downloadBinary(res.headers.location, assetName, onProgress)
+            .then(resolve)
+            .catch(reject);
+        });
+        return;
+      }
+
+      if (res.statusCode !== 200) {
+        file.close(() => {
+          try { fs.unlinkSync(tempPath); } catch (e) {}
+          reject(new Error('Falha ao baixar binário: HTTP ' + res.statusCode));
+        });
+        return;
       }
       
       const totalSize = parseInt(res.headers['content-length'], 10);
@@ -83,26 +104,185 @@ function downloadBinary(url, assetName, onProgress) {
       
       res.pipe(file);
       file.on('finish', () => {
-        file.close();
-        // Substituir o antigo pelo novo
-        try {
-          if (fs.existsSync(destPath)) {
-            fs.unlinkSync(destPath);
+        file.close(async (closeErr) => {
+          if (closeErr) {
+            try { fs.unlinkSync(tempPath); } catch (e) {}
+            return reject(closeErr);
           }
-          fs.renameSync(tempPath, destPath);
-          if (os.platform() !== 'win32') {
-             fs.chmodSync(destPath, 0o755); // Dar permissão de execução
+
+          // Delay para liberação do lock de arquivo no Windows
+          await new Promise(r => setTimeout(r, 150));
+
+          let replaced = false;
+          let lastError = null;
+
+          for (let attempt = 1; attempt <= 5; attempt++) {
+            try {
+              if (fs.existsSync(destPath)) {
+                try { fs.unlinkSync(destPath); } catch (e) {}
+              }
+              fs.renameSync(tempPath, destPath);
+              if (os.platform() !== 'win32') {
+                try { fs.chmodSync(destPath, 0o755); } catch (e) {}
+              }
+              replaced = true;
+              break;
+            } catch (e) {
+              lastError = e;
+              await new Promise(r => setTimeout(r, 200));
+            }
           }
-          resolve();
-        } catch (e) {
-          reject(new Error('Falha ao substituir binário: ' + e.message + '. O yt-dlp pode estar em uso.'));
-        }
+
+          if (replaced) {
+            resolve();
+          } else {
+            try {
+              fs.copyFileSync(tempPath, destPath);
+              try { fs.unlinkSync(tempPath); } catch (e) {}
+              if (os.platform() !== 'win32') {
+                try { fs.chmodSync(destPath, 0o755); } catch (e) {}
+              }
+              resolve();
+            } catch (copyErr) {
+              reject(new Error('Falha ao substituir binário: ' + (lastError ? lastError.message : copyErr.message) + '. O arquivo pode estar em uso.'));
+            }
+          }
+        });
       });
-    }).on('error', (err) => {
-      fs.unlink(tempPath, () => {});
-      reject(err);
+    });
+
+    req.on('error', (err) => {
+      file.close(() => {
+        try { fs.unlinkSync(tempPath); } catch (e) {}
+        reject(err);
+      });
     });
   });
 }
 
-module.exports = { updateYtDlp };
+function updateFfmpeg(onProgress) {
+  return new Promise((resolve, reject) => {
+    const platform = os.platform();
+    if (platform !== 'win32') {
+      return resolve('FFmpeg no macOS/Linux é gerenciado pelo sistema (brew/apt) — nada a atualizar.');
+    }
+
+    onProgress("Procurando FFmpeg...");
+    const zipUrl = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip';
+    const binFolder = getBinFolder();
+    if (!fs.existsSync(binFolder)) {
+      try { fs.mkdirSync(binFolder, { recursive: true }); } catch (e) {}
+    }
+    
+    const zipDest = path.join(binFolder, 'ffmpeg.zip');
+    if (fs.existsSync(zipDest)) {
+      try { fs.unlinkSync(zipDest); } catch (e) {}
+    }
+
+    const file = fs.createWriteStream(zipDest);
+    
+    // Função para tratar redirecionamentos recursivamente
+    const downloadZip = (url) => {
+      https.get(url, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return downloadZip(res.headers.location);
+        }
+        if (res.statusCode !== 200) {
+          file.close(() => {
+            try { fs.unlinkSync(zipDest); } catch (e) {}
+            reject(new Error('Falha ao baixar FFmpeg: HTTP ' + res.statusCode));
+          });
+          return;
+        }
+
+        const totalSize = parseInt(res.headers['content-length'], 10);
+        let downloadedSize = 0;
+        
+        res.on('data', (chunk) => {
+          downloadedSize += chunk.length;
+          if (totalSize) {
+            const percent = ((downloadedSize / totalSize) * 100).toFixed(0);
+            if (percent % 10 === 0) onProgress(`Baixando zip: ${percent}%`);
+          }
+        });
+
+        res.pipe(file);
+        file.on('finish', () => {
+          file.close(async (closeErr) => {
+            if (closeErr) {
+              try { fs.unlinkSync(zipDest); } catch (e) {}
+              return reject(closeErr);
+            }
+
+            await new Promise(r => setTimeout(r, 150));
+            onProgress("Extraindo FFmpeg...");
+            
+            const script = `
+              $ErrorActionPreference = 'Stop'
+              Add-Type -AssemblyName System.IO.Compression.FileSystem
+              $zipPath = '${zipDest}'
+              $extractPath = '${binFolder}\\ffmpeg_temp'
+              if (Test-Path $extractPath) { Remove-Item -Path $extractPath -Recurse -Force }
+              New-Item -ItemType Directory -Path $extractPath | Out-Null
+              [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $extractPath)
+              
+              $ffmpegExe = Get-ChildItem -Path $extractPath -Filter "ffmpeg.exe" -Recurse | Select-Object -First 1
+              if ($ffmpegExe) {
+                Copy-Item -Path $ffmpegExe.FullName -Destination '${binFolder}\\ffmpeg.exe' -Force
+              }
+              $ffprobeExe = Get-ChildItem -Path $extractPath -Filter "ffprobe.exe" -Recurse | Select-Object -First 1
+              if ($ffprobeExe) {
+                Copy-Item -Path $ffprobeExe.FullName -Destination '${binFolder}\\ffprobe.exe' -Force
+              }
+              
+              Remove-Item -Path $extractPath -Recurse -Force
+              Remove-Item -Path $zipPath -Force
+            `;
+            
+            const ps = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', script]);
+            
+            ps.on('close', (code) => {
+              if (code === 0) {
+                resolve('FFmpeg atualizado com sucesso!');
+              } else {
+                reject(new Error('Falha na extração do FFmpeg via PowerShell.'));
+              }
+            });
+            
+            ps.on('error', (err) => {
+              reject(new Error('Erro ao chamar PowerShell para extração: ' + err.message));
+            });
+          });
+        });
+      }).on('error', (err) => {
+        file.close(() => {
+          try { fs.unlinkSync(zipDest); } catch (e) {}
+          reject(err);
+        });
+      });
+    };
+    
+    downloadZip(zipUrl);
+  });
+}
+
+async function updateAll(onProgress) {
+  let ytResult = '';
+  let ffmpegResult = '';
+
+  try {
+    ytResult = await updateYtDlp((msg) => onProgress(`[yt-dlp] ${msg}`));
+  } catch (err) {
+    ytResult = `Erro yt-dlp: ${err.message}`;
+  }
+
+  try {
+    ffmpegResult = await updateFfmpeg((msg) => onProgress(`[FFmpeg] ${msg}`));
+  } catch (err) {
+    ffmpegResult = `Erro FFmpeg: ${err.message}`;
+  }
+
+  return `${ytResult}\\n${ffmpegResult}`;
+}
+
+module.exports = { updateAll, updateYtDlp, updateFfmpeg };

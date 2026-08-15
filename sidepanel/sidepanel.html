@@ -76,9 +76,29 @@
           Voltar
         </button>
         <h3>Histórico de Downloads</h3>
+        <button class="icon-btn" id="open-trash-btn" title="Lixeira do Histórico" style="margin-left: auto;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
       </div>
       <div id="history-list"></div>
       <button class="clear-btn" id="clear-history-btn">Limpar Histórico</button>
+    </div>
+
+    <!-- Painel de Lixeira -->
+    <div class="panel" id="panel-trash" style="display: none;">
+      <div class="panel-header">
+        <button class="back-btn" id="back-from-trash">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+          Voltar
+        </button>
+        <h3>Lixeira</h3>
+      </div>
+      <p class="trash-notice">Itens apagados ficam salvos aqui e serão excluídos permanentemente após o prazo configurado.</p>
+      <div id="trash-list"></div>
+      <button class="clear-btn" id="empty-trash-btn">Esvaziar Lixeira</button>
     </div>
 
     <!-- Painel de Configurações -->
@@ -91,16 +111,34 @@
         <h3>Configurações</h3>
       </div>
       <div class="settings-group">
-        <label>Pasta de Download</label>
-        <input type="text" id="custom-folder-input" placeholder="Ex: D:\Cursos (vazio = pasta Downloads padrão)">
-        <p class="settings-hint">Deixe em branco para usar a pasta Downloads padrão do seu sistema.</p>
+        <div class="settings-toggle-row">
+          <div class="settings-toggle-info">
+            <span class="settings-toggle-title">Notificações do Navegador</span>
+            <p class="settings-hint">Exibir alertas na área de trabalho quando os downloads terminarem ou falharem.</p>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="notifications-toggle">
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
       </div>
-      <button class="save-btn" id="save-settings-btn">Salvar Configurações</button>
-      
-      <div class="settings-group" style="margin-top: 25px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px;">
-        <label>Atualização do Motor (yt-dlp)</label>
-        <p class="settings-hint" style="margin-bottom: 8px;">Caso o download do YouTube ou outras plataformas comece a falhar repentinamente, atualizar o motor principal pode resolver o problema.</p>
-        <button class="save-btn" id="update-ytdlp-btn" style="background-color: #4b5563;">Buscar e Atualizar yt-dlp</button>
+
+      <div class="settings-group" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 16px;">
+        <label for="trash-retention-select">Prazo de Retenção da Lixeira</label>
+        <select id="trash-retention-select" class="settings-select">
+          <option value="1">1 dia</option>
+          <option value="3">3 dias</option>
+          <option value="7">7 dias (Padrão)</option>
+          <option value="15">15 dias</option>
+          <option value="30">30 dias</option>
+        </select>
+        <p class="settings-hint">Os itens apagados do histórico permanecem na lixeira por este período antes da exclusão permanente.</p>
+      </div>
+
+      <div class="settings-group" style="margin-top: 20px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 16px;">
+        <label>Atualização do Motor</label>
+        <p class="settings-hint" style="margin-bottom: 8px;">Caso o download de qualquer plataforma comece a falhar repentinamente, atualizar os componentes internos pode resolver o problema.</p>
+        <button class="save-btn" id="update-ytdlp-btn" style="background-color: #4b5563;">Buscar e Atualizar</button>
       </div>
     </div>
   </div>

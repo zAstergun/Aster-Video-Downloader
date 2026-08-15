@@ -11,12 +11,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const panelVideos = document.getElementById('panel-videos');
   const panelHistory = document.getElementById('panel-history');
   const panelSettings = document.getElementById('panel-settings');
+  const panelTrash = document.getElementById('panel-trash');
   
   const clearBtn = document.getElementById('clear-btn');
   const historyBtn = document.getElementById('history-btn');
   const settingsBtn = document.getElementById('settings-btn');
+  const openTrashBtn = document.getElementById('open-trash-btn');
   const backFromHistory = document.getElementById('back-from-history');
   const backFromSettings = document.getElementById('back-from-settings');
+  const backFromTrash = document.getElementById('back-from-trash');
 
   // Estado local: vídeos detectados no painel
   let detectedVideos = [];
@@ -45,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
     panelVideos.style.display = 'none';
     panelHistory.style.display = 'none';
     panelSettings.style.display = 'none';
+    if (panelTrash) panelTrash.style.display = 'none';
     panel.style.display = 'block';
   }
 
@@ -53,8 +57,20 @@ document.addEventListener('DOMContentLoaded', () => {
     showPanel(panelHistory);
   });
   settingsBtn.addEventListener('click', () => showPanel(panelSettings));
+  if (openTrashBtn) {
+    openTrashBtn.addEventListener('click', () => {
+      renderTrash();
+      showPanel(panelTrash);
+    });
+  }
   backFromHistory.addEventListener('click', () => showPanel(panelVideos));
   backFromSettings.addEventListener('click', () => showPanel(panelVideos));
+  if (backFromTrash) {
+    backFromTrash.addEventListener('click', () => {
+      renderHistory();
+      showPanel(panelHistory);
+    });
+  }
 
   function formatFriendlyProgress(rawText) {
     if (!rawText) return 'Processando...';
@@ -470,7 +486,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const typeLabels = {
         'youtube': 'YT-DLP', 'twitter': 'X-DLP', 'instagram': 'INSTA',
-        'facebook': 'FB', 'reddit': 'REDDIT', 'hls': 'M3U8', 'html5': 'HTML5'
+        'facebook': 'FB', 'reddit': 'REDDIT', 'tiktok': 'TIKTOK', 'hls': 'M3U8', 'html5': 'HTML5'
       };
       const fmtBadge = document.createElement('span');
       fmtBadge.className = 'badge badge-format';
@@ -482,7 +498,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const actions = document.createElement('div');
       actions.className = 'video-card-actions';
 
-      const vipTypes = ['youtube', 'twitter', 'instagram', 'facebook', 'reddit', 'hls'];
+      const vipTypes = ['youtube', 'twitter', 'instagram', 'facebook', 'reddit', 'tiktok', 'hls'];
       const isVIP = vipTypes.includes(video.type);
 
       const qualitySelect = document.createElement('select');
@@ -607,7 +623,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const domainMap = {
       'youtube': [], 'twitter': ['twitter.com', 'x.com'],
       'instagram': ['instagram.com'], 'facebook': ['facebook.com'],
-      'reddit': ['reddit.com'], 'hls': []
+      'reddit': ['reddit.com'], 'tiktok': ['tiktok.com'], 'hls': []
     };
     const domains = domainMap[video.type] || [];
 
@@ -733,7 +749,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // =========================================
   function downloadVideo(video, quality) {
     let actionName = 'download_video';
-    const vipTypes = ['youtube', 'twitter', 'instagram', 'facebook', 'reddit', 'hls'];
+    const vipTypes = ['youtube', 'twitter', 'instagram', 'facebook', 'reddit', 'tiktok', 'hls'];
     if (vipTypes.includes(video.type)) actionName = 'download_youtube';
     if (video.type === 'html5' && quality && quality !== 'best') actionName = 'download_html5_converted';
 
@@ -769,6 +785,8 @@ document.addEventListener('DOMContentLoaded', () => {
       getCookiesAndSend(['facebook.com']);
     } else if (video.type === 'reddit') {
       getCookiesAndSend(['reddit.com']);
+    } else if (video.type === 'tiktok') {
+      getCookiesAndSend(['tiktok.com']);
     } else {
       chrome.runtime.sendMessage({ action: actionName, url: video.url, title: video.title, quality: quality });
     }
@@ -814,12 +832,34 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // =========================================
-  // History Panel
+  // History & Trash Panels
   // =========================================
   const historyList = document.getElementById('history-list');
   const clearHistoryBtn = document.getElementById('clear-history-btn');
+  const trashList = document.getElementById('trash-list');
+  const emptyTrashBtn = document.getElementById('empty-trash-btn');
+
+  function pruneExpiredTrash(callback) {
+    chrome.storage.local.get(['aster_trash', 'aster_settings'], (data) => {
+      let trash = data.aster_trash || [];
+      const settings = data.aster_settings || {};
+      const retentionDays = parseInt(settings.trashRetentionDays, 10) || 7;
+      const maxAgeMs = retentionDays * 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      const initialCount = trash.length;
+      trash = trash.filter(item => (now - (item.deletedAt || item.timestamp || now)) < maxAgeMs);
+      if (trash.length !== initialCount) {
+        chrome.storage.local.set({ aster_trash: trash }, () => {
+          if (callback) callback(trash);
+        });
+      } else {
+        if (callback) callback(trash);
+      }
+    });
+  }
 
   function renderHistory() {
+    pruneExpiredTrash();
     chrome.storage.local.get('aster_history', (data) => {
       historyList.innerHTML = '';
       const history = data.aster_history || [];
@@ -835,47 +875,185 @@ document.addEventListener('DOMContentLoaded', () => {
         const el = document.createElement('div');
         el.className = 'history-item';
         el.innerHTML = `
-          <div class="history-item-title" title="${item.title || item.url}">${item.title || item.url}</div>
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 4px;">
+            <div class="history-item-title" title="${item.title || item.url}" style="flex: 1; margin-bottom: 0;">${item.title || item.url}</div>
+            <button class="history-item-delete-btn" data-timestamp="${item.timestamp}" title="Mover para a lixeira">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+            </button>
+          </div>
           <div class="history-item-meta" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-            <div style="display: flex; gap: 8px;">
+            <div style="display: flex; gap: 8px; align-items: center;">
               <span>${new Date(item.timestamp).toLocaleString()}</span>
               <span class="${item.status === 'success' ? 'history-status-success' : 'history-status-error'}">${item.status === 'success' ? '✓ Concluído' : '✗ Falha'}</span>
             </div>
             ${item.url ? `<a href="${item.url}" target="_blank" title="Abrir link original" style="color: var(--accent); background: rgba(123, 97, 255, 0.15); padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: background 0.2s;"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> Link</a>` : ''}
           </div>
         `;
+
+        const deleteBtn = el.querySelector('.history-item-delete-btn');
+        if (deleteBtn) {
+          deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const ts = Number(deleteBtn.dataset.timestamp);
+            chrome.storage.local.get(['aster_history', 'aster_trash'], (hData) => {
+              let curHistory = hData.aster_history || [];
+              let curTrash = hData.aster_trash || [];
+              const idx = curHistory.findIndex(h => h.timestamp === ts);
+              if (idx !== -1) {
+                const itemToTrash = curHistory.splice(idx, 1)[0];
+                itemToTrash.deletedAt = Date.now();
+                curTrash.push(itemToTrash);
+                chrome.storage.local.set({ aster_history: curHistory, aster_trash: curTrash }, () => renderHistory());
+              }
+            });
+          });
+        }
+
         historyList.appendChild(el);
       });
     });
   }
 
   clearHistoryBtn.addEventListener('click', () => {
-    chrome.storage.local.set({ aster_history: [] }, () => renderHistory());
+    chrome.storage.local.get(['aster_history', 'aster_trash'], (hData) => {
+      const curHistory = hData.aster_history || [];
+      let curTrash = hData.aster_trash || [];
+      if (curHistory.length > 0) {
+        const now = Date.now();
+        const trashed = curHistory.map(item => ({ ...item, deletedAt: now }));
+        curTrash = curTrash.concat(trashed);
+        chrome.storage.local.set({ aster_history: [], aster_trash: curTrash }, () => renderHistory());
+      }
+    });
   });
+
+  function renderTrash() {
+    pruneExpiredTrash((trash) => {
+      trashList.innerHTML = '';
+      if (!trash || trash.length === 0) {
+        trashList.innerHTML = '<div class="empty-state" style="padding: 20px 0;"><p style="font-size: 13px;">Lixeira vazia.</p></div>';
+        emptyTrashBtn.style.display = 'none';
+        return;
+      }
+
+      emptyTrashBtn.style.display = 'block';
+      trash.slice().reverse().forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'history-item';
+        el.innerHTML = `
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 4px;">
+            <div class="history-item-title" title="${item.title || item.url}" style="flex: 1; margin-bottom: 0;">${item.title || item.url}</div>
+            <div class="trash-item-actions">
+              <button class="trash-btn trash-restore-btn" data-timestamp="${item.timestamp}" title="Restaurar para o histórico">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="1 4 1 10 7 10"></polyline>
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+                </svg>
+                Restaurar
+              </button>
+              <button class="trash-btn trash-delete-btn" data-timestamp="${item.timestamp}" title="Excluir permanentemente">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"></line>
+                  <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="history-item-meta" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span>Excluído: ${new Date(item.deletedAt || item.timestamp).toLocaleDateString()}</span>
+              <span class="${item.status === 'success' ? 'history-status-success' : 'history-status-error'}">${item.status === 'success' ? '✓ Concluído' : '✗ Falha'}</span>
+            </div>
+            ${item.url ? `<a href="${item.url}" target="_blank" title="Abrir link original" style="color: var(--accent); background: rgba(123, 97, 255, 0.15); padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: background 0.2s;"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> Link</a>` : ''}
+          </div>
+        `;
+
+        const restoreBtn = el.querySelector('.trash-restore-btn');
+        if (restoreBtn) {
+          restoreBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const ts = Number(restoreBtn.dataset.timestamp);
+            chrome.storage.local.get(['aster_history', 'aster_trash'], (data) => {
+              let curHistory = data.aster_history || [];
+              let curTrash = data.aster_trash || [];
+              const idx = curTrash.findIndex(t => t.timestamp === ts);
+              if (idx !== -1) {
+                const itemToRestore = curTrash.splice(idx, 1)[0];
+                delete itemToRestore.deletedAt;
+                curHistory.push(itemToRestore);
+                chrome.storage.local.set({ aster_history: curHistory, aster_trash: curTrash }, () => renderTrash());
+              }
+            });
+          });
+        }
+
+        const deletePermBtn = el.querySelector('.trash-delete-btn');
+        if (deletePermBtn) {
+          deletePermBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const ts = Number(deletePermBtn.dataset.timestamp);
+            chrome.storage.local.get('aster_trash', (data) => {
+              let curTrash = data.aster_trash || [];
+              const idx = curTrash.findIndex(t => t.timestamp === ts);
+              if (idx !== -1) {
+                curTrash.splice(idx, 1);
+                chrome.storage.local.set({ aster_trash: curTrash }, () => renderTrash());
+              }
+            });
+          });
+        }
+
+        trashList.appendChild(el);
+      });
+    });
+  }
+
+  if (emptyTrashBtn) {
+    emptyTrashBtn.addEventListener('click', () => {
+      chrome.storage.local.set({ aster_trash: [] }, () => renderTrash());
+    });
+  }
 
   // =========================================
   // Settings Panel
   // =========================================
-  const customFolderInput = document.getElementById('custom-folder-input');
-  const saveSettingsBtn = document.getElementById('save-settings-btn');
 
-  chrome.storage.local.get('aster_settings', (data) => {
-    if (data.aster_settings && data.aster_settings.downloadFolder) {
-      customFolderInput.value = data.aster_settings.downloadFolder;
-    }
-  });
-
-  saveSettingsBtn.addEventListener('click', () => {
-    const folder = customFolderInput.value.trim();
-    chrome.storage.local.set({ aster_settings: { downloadFolder: folder } }, () => {
-      saveSettingsBtn.textContent = 'Salvo!';
-      saveSettingsBtn.style.backgroundColor = '#10b981';
-      setTimeout(() => {
-        saveSettingsBtn.textContent = 'Salvar Configurações';
-        saveSettingsBtn.style.backgroundColor = '';
-      }, 2000);
+  const notificationsToggle = document.getElementById('notifications-toggle');
+  if (notificationsToggle) {
+    chrome.storage.local.get('aster_settings', (data) => {
+      const settings = data.aster_settings || {};
+      notificationsToggle.checked = settings.notificationsEnabled !== false;
     });
-  });
+
+    notificationsToggle.addEventListener('change', () => {
+      chrome.storage.local.get('aster_settings', (data) => {
+        const settings = data.aster_settings || {};
+        settings.notificationsEnabled = notificationsToggle.checked;
+        chrome.storage.local.set({ aster_settings: settings });
+      });
+    });
+  }
+
+  const trashRetentionSelect = document.getElementById('trash-retention-select');
+  if (trashRetentionSelect) {
+    chrome.storage.local.get('aster_settings', (data) => {
+      const settings = data.aster_settings || {};
+      trashRetentionSelect.value = String(settings.trashRetentionDays || 7);
+    });
+
+    trashRetentionSelect.addEventListener('change', () => {
+      chrome.storage.local.get('aster_settings', (data) => {
+        const settings = data.aster_settings || {};
+        settings.trashRetentionDays = parseInt(trashRetentionSelect.value, 10) || 7;
+        chrome.storage.local.set({ aster_settings: settings }, () => {
+          pruneExpiredTrash();
+        });
+      });
+    });
+  }
 
   const updateYtdlpBtn = document.getElementById('update-ytdlp-btn');
   if (updateYtdlpBtn) {

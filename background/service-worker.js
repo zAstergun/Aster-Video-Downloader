@@ -39,12 +39,17 @@ chrome.downloads.onChanged.addListener((delta) => {
       url: downloadInfo.url
     }).catch(() => {});
     
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: '/assets/icon.png',
-      title: notifTitle,
-      message: downloadInfo.title || 'Vídeo salvo com sucesso.'
-    }).catch(() => {});
+    chrome.storage.local.get('aster_settings', (data) => {
+      const settings = data.aster_settings || {};
+      if (settings.notificationsEnabled !== false) {
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: '/assets/icon.png',
+          title: notifTitle,
+          message: downloadInfo.title || 'Vídeo salvo com sucesso.'
+        }).catch(() => {});
+      }
+    });
     
     chrome.storage.local.get('aster_history', (histData) => {
        const history = histData.aster_history || [];
@@ -321,13 +326,9 @@ function executeCompanionDownload(job) {
   const { action, url, cookies, quality, title } = job;
   log("Enviando para o companion app (via fila):", action, url);
   
-  chrome.storage.local.get('aster_settings', (data) => {
-    const settings = data.aster_settings || {};
-    const downloadFolder = settings.downloadFolder || null;
-    
-    try {
-      const port = chrome.runtime.connectNative('com.aster.downloader');
-      activeJob.port = port;
+  try {
+    const port = chrome.runtime.connectNative('com.aster.downloader');
+    activeJob.port = port;
       
       let jobFinished = false;
       const finishJob = () => {
@@ -380,12 +381,17 @@ function executeCompanionDownload(job) {
           finishJob();
           port.disconnect();
           
-          chrome.notifications.create({
-            type: 'basic',
-            iconUrl: '/assets/icon.png',
-            title: 'Erro no Download',
-            message: (title || 'Falha ao processar') + '\n' + (msg.error || '')
-          }).catch(() => {});
+          chrome.storage.local.get('aster_settings', (data) => {
+            const settings = data.aster_settings || {};
+            if (settings.notificationsEnabled !== false) {
+              chrome.notifications.create({
+                type: 'basic',
+                iconUrl: '/assets/icon.png',
+                title: 'Erro no Download',
+                message: (title || 'Falha ao processar') + '\n' + (msg.error || '')
+              }).catch(() => {});
+            }
+          });
           
           chrome.storage.local.get('aster_history', (histData) => {
              const history = histData.aster_history || [];
@@ -439,7 +445,7 @@ function executeCompanionDownload(job) {
         }
       });
       
-      port.postMessage({ action: action, url: url, cookies: cookies, quality: quality, downloadFolder: downloadFolder });
+      port.postMessage({ action: action, url: url, cookies: cookies, quality: quality });
     } catch (err) {
       errLog("Erro ao conectar ao companion app:", err);
       if (activeJob) {
@@ -447,5 +453,4 @@ function executeCompanionDownload(job) {
         processDownloadQueue();
       }
     }
-  });
 }

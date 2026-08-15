@@ -1,3 +1,4 @@
-companion-app/bin/ffmpeg.exe
-companion-app/bin/ffprobe.exe
+companion-app/bin/
+companion-app/dist/bin/
+bin/
 aster-key.pem

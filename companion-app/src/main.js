@@ -33,7 +33,7 @@ function sendMessage(msg) {
 
 function handleMessage(msg) {
   if (msg.action === 'get_formats') {
-    const isVIP = ['youtube', 'twitter', 'instagram', 'facebook', 'reddit'].includes(msg.type);
+    const isVIP = ['youtube', 'twitter', 'instagram', 'facebook', 'reddit', 'tiktok'].includes(msg.type);
     if (isVIP) {
       downloader.getYouTubeFormats(msg.url, msg.cookies).then(result => {
         const formats = Array.isArray(result) ? result : (result.formats || []);
@@ -51,7 +51,7 @@ function handleMessage(msg) {
     sendMessage({ status: 'info', text: 'Iniciando download...' });
     downloader.downloadYoutube(msg.url, (progressMsg) => {
       sendMessage({ status: 'progress', text: progressMsg });
-    }, msg.cookies, msg.quality, msg.downloadFolder).then((filePath) => {
+    }, msg.cookies, msg.quality).then((filePath) => {
       return localServer.registerFile(filePath).then(localUrl => {
         const token = new URL(localUrl).searchParams.get('token');
         sendMessage({ status: 'ready_to_download', url: localUrl, token: token, filePath: filePath });
@@ -75,7 +75,7 @@ function handleMessage(msg) {
     sendMessage({ status: 'info', text: 'Iniciando conversão...' });
     downloader.downloadHTML5Converted(msg.url, (progressMsg) => {
       sendMessage({ status: 'progress', text: progressMsg });
-    }, msg.quality, msg.downloadFolder).then((filePath) => {
+    }, msg.quality).then((filePath) => {
       return localServer.registerFile(filePath).then(localUrl => {
         const token = new URL(localUrl).searchParams.get('token');
         sendMessage({ status: 'ready_to_download', url: localUrl, token: token, filePath: filePath });
@@ -96,7 +96,7 @@ function handleMessage(msg) {
       }
     }
   } else if (msg.action === 'update_ytdlp') {
-    updater.updateYtDlp((progressMsg) => {
+    updater.updateAll((progressMsg) => {
       sendMessage({ status: 'progress', text: progressMsg });
     }).then(result => {
       sendMessage({ status: 'success', text: result });

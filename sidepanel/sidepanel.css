@@ -518,6 +518,25 @@ body {
   font-weight: 600;
 }
 
+.history-item-delete-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.history-item-delete-btn:hover {
+  color: var(--error);
+  background: rgba(239, 68, 68, 0.15);
+}
+
 .clear-btn {
   width: 100%;
   padding: 8px;
@@ -550,7 +569,75 @@ body {
   margin-bottom: 8px;
 }
 
-.settings-group input {
+.settings-toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-toggle-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-toggle-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 22px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.toggle-slider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #333333;
+  transition: 0.25s ease;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: #ffffff;
+  transition: 0.25s ease;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+
+.toggle-switch input:checked + .toggle-slider:before {
+  transform: translateX(16px);
+}
+
+.settings-group input, .settings-select {
   width: 100%;
   background: var(--bg-main);
   border: 1px solid var(--border);
@@ -563,7 +650,16 @@ body {
   transition: border-color 0.2s;
 }
 
-.settings-group input:focus {
+.settings-select {
+  cursor: pointer;
+}
+
+.settings-select option {
+  background-color: var(--bg-panel);
+  color: var(--text-main);
+}
+
+.settings-group input:focus, .settings-select:focus, .settings-select:hover {
   border-color: var(--accent);
 }
 
@@ -571,6 +667,46 @@ body {
   font-size: 11px;
   color: var(--text-muted);
   margin-top: 6px;
+}
+
+/* ---- Trash Panel ---- */
+.trash-notice {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  line-height: 1.4;
+  padding: 0 2px;
+}
+
+.trash-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.trash-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.trash-restore-btn:hover {
+  color: var(--accent);
+  background: rgba(123, 97, 255, 0.15);
+}
+
+.trash-delete-btn:hover {
+  color: var(--error);
+  background: rgba(239, 68, 68, 0.15);
 }
 
 .save-btn {

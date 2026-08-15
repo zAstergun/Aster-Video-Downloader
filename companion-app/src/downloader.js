@@ -4,6 +4,7 @@ const os = require('os');
 const https = require('https');
 const http = require('http');
 const m3u8Parser = require('m3u8-parser');
+const { getBinFolder, getBinCandidates } = require('./paths');
 
 // Helper para sanitize do nome de arquivo
 function sanitizeFilename(name) {
@@ -15,20 +16,63 @@ function sanitizeFilename(name) {
 
 function resolveBinaryPath(binName) {
   const platform = os.platform();
-  let fileName;
+  let fileNames = [];
   if (binName === 'yt-dlp') {
-    fileName = platform === 'win32' ? 'yt-dlp.exe' : (platform === 'darwin' ? 'yt-dlp_macos' : 'yt-dlp');
+    fileNames = platform === 'win32' ? ['yt-dlp.exe'] : (platform === 'darwin' ? ['yt-dlp_macos', 'yt-dlp'] : ['yt-dlp']);
   } else if (binName === 'ffmpeg') {
-    fileName = platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+    fileNames = platform === 'win32' ? ['ffmpeg.exe'] : ['ffmpeg'];
+  } else if (binName === 'ffprobe') {
+    fileNames = platform === 'win32' ? ['ffprobe.exe'] : ['ffprobe'];
+  } else {
+    fileNames = [binName];
   }
-  const localPath = path.join(__dirname, '..', 'bin', fileName);
-  if (fs.existsSync(localPath)) {
-    if (platform !== 'win32') {
-      try { fs.chmodSync(localPath, 0o755); } catch (e) {}
+
+  const candidates = typeof getBinCandidates === 'function' ? getBinCandidates() : [getBinFolder()];
+
+  // 1. Auto-recuperação: se existir arquivo .new sem o executável final, tenta renomear/recuperar
+  for (const dir of candidates) {
+    for (const fileName of fileNames) {
+      const newPath = path.join(dir, fileName + '.new');
+      const targetPath = path.join(dir, fileName);
+      if (fs.existsSync(newPath)) {
+        if (!fs.existsSync(targetPath)) {
+          try {
+            fs.renameSync(newPath, targetPath);
+          } catch (e) {
+            try { fs.copyFileSync(newPath, targetPath); } catch (err) {}
+          }
+        }
+      }
     }
-    return localPath;
   }
-  return binName;
+
+  // 2. Busca o binário em todas as pastas candidatas
+  for (const dir of candidates) {
+    for (const fileName of fileNames) {
+      const localPath = path.join(dir, fileName);
+      if (fs.existsSync(localPath)) {
+        if (platform !== 'win32') {
+          try { fs.chmodSync(localPath, 0o755); } catch (e) {}
+        }
+        return localPath;
+      }
+    }
+  }
+
+  // 3. Fallback: se apenas o .new existir, tenta utilizá-lo diretamente
+  for (const dir of candidates) {
+    for (const fileName of fileNames) {
+      const newPath = path.join(dir, fileName + '.new');
+      if (fs.existsSync(newPath)) {
+        if (platform !== 'win32') {
+          try { fs.chmodSync(newPath, 0o755); } catch (e) {}
+        }
+        return newPath;
+      }
+    }
+  }
+
+  return fileNames[0] || binName;
 }
 
 const { spawn } = require('child_process');
@@ -87,7 +131,7 @@ function cancelCurrentDownload() {
   currentDownload = null;
 }
 
-function downloadYoutube(url, onProgress, cookies = null, quality = null, downloadFolder = null) {
+function downloadYoutube(url, onProgress, cookies = null, quality = null) {
   return new Promise((resolve, reject) => {
     // Procura o yt-dlp na pasta bin
     const executable = resolveBinaryPath('yt-dlp');
@@ -106,8 +150,11 @@ function downloadYoutube(url, onProgress, cookies = null, quality = null, downlo
       formatArg = `bestvideo[height<=${height}]+bestaudio/best[height<=${height}]/best`;
     }
 
+    const ffmpegPath = resolveBinaryPath('ffmpeg');
+    const ffmpegDir = path.isAbsolute(ffmpegPath) ? path.dirname(ffmpegPath) : getBinFolder();
+
     const args = [
-      '--ffmpeg-location', path.join(__dirname, '..', 'bin'),
+      '--ffmpeg-location', ffmpegDir,
       '--js-runtimes', 'node',
       '-f', formatArg,
       '-o', outputPath
@@ -426,7 +473,7 @@ async function getHLSFormats(url, cookies = null) {
   }
 }
 
-function downloadHTML5Converted(url, onProgress, quality, downloadFolder = null) {
+function downloadHTML5Converted(url, onProgress, quality) {
   return new Promise((resolve, reject) => {
     const executable = resolveBinaryPath('ffmpeg');
     

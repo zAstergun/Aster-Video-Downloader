@@ -38,8 +38,9 @@ function extractSmartTitle(element) {
         .replace(/\s*•\s*Instagram.*$/i, '')
         .replace(/\s*\|\s*Facebook$/i, '')
         .replace(/\s*:\s*Reddit$/i, '')
+        .replace(/\s*\|\s*TikTok$/i, '')
         .trim();
-      if (cleanTitle.length > 2 && !['youtube', 'twitter', 'instagram', 'facebook', 'reddit'].includes(cleanTitle.toLowerCase())) {
+      if (cleanTitle.length > 2 && !['youtube', 'twitter', 'instagram', 'facebook', 'reddit', 'tiktok'].includes(cleanTitle.toLowerCase())) {
         return cleanTitle;
       }
     }
@@ -154,6 +155,27 @@ function scanForVideos() {
            newVideos.push({ url: window.location.href, type: 'facebook', title: fbTitle, element: video });
         }
         return; // Impede fallback HTML5 genérico
+      }
+
+      // Arquitetura Híbrida: Extrator Especialista para TikTok
+      if (window.location.hostname.includes('tiktok.com')) {
+        let tiktokUrl = null;
+        if (window.location.pathname.includes('/video/')) {
+          tiktokUrl = window.location.href;
+        } else {
+          // Fallback para procurar link em feeds
+          let container = video.closest('div');
+          // No TikTok a estrutura muda muito, tenta subir algumas divs se não achar
+          for (let i = 0; i < 4 && container; i++) {
+            const a = container.querySelector('a[href*="/video/"]');
+            if (a) { tiktokUrl = a.href; break; }
+            container = container.parentElement;
+          }
+        }
+        if (tiktokUrl) {
+          newVideos.push({ url: tiktokUrl, type: 'tiktok', title: extractSmartTitle(video), element: video });
+          return;
+        }
       }
 
       // Arquitetura Híbrida: Extrator Especialista para YouTube (captura de thumb)
