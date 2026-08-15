@@ -160,22 +160,46 @@ function scanForVideos() {
       // Arquitetura Híbrida: Extrator Especialista para TikTok
       if (window.location.hostname.includes('tiktok.com')) {
         let tiktokUrl = null;
-        if (window.location.pathname.includes('/video/')) {
+        if (window.location.pathname.includes('/video/') || window.location.pathname.includes('/v/')) {
           tiktokUrl = window.location.href;
         } else {
           // Fallback para procurar link em feeds
           let container = video.closest('div');
           // No TikTok a estrutura muda muito, tenta subir algumas divs se não achar
-          for (let i = 0; i < 4 && container; i++) {
-            const a = container.querySelector('a[href*="/video/"]');
+          for (let i = 0; i < 12 && container; i++) {
+            // 1. Tenta achar data-item-id (comum no feed novo)
+            const itemId = container.getAttribute('data-item-id');
+            if (itemId) {
+              tiktokUrl = 'https://www.tiktok.com/@u/video/' + itemId;
+              break;
+            }
+            
+            // 2. Tenta achar ID numeral longo na própria div (ex: xgwrapper-0-72123...)
+            if (container.id) {
+               const match = container.id.match(/(\d{15,})/);
+               if (match) {
+                 tiktokUrl = 'https://www.tiktok.com/@u/video/' + match[1];
+                 break;
+               }
+            }
+
+            // 3. Tenta achar um link 'a' com /video/
+            const a = container.querySelector('a[href*="/video/"], a[href*="/v/"]');
             if (a) { tiktokUrl = a.href; break; }
+            
             container = container.parentElement;
           }
         }
-        if (tiktokUrl) {
-          newVideos.push({ url: tiktokUrl, type: 'tiktok', title: extractSmartTitle(video), element: video });
-          return;
+        
+        if (!tiktokUrl) {
+          // Se mesmo assim não achar, usa a URL da página.
+          // Para não sobrescrever vídeos no feed (mesma URL), adiciona um hash único
+          let hash = video.src ? btoa(video.src.slice(-20)).replace(/[^a-zA-Z0-9]/g, '').substring(0, 8) : Math.random().toString(36).substring(2, 8);
+          tiktokUrl = window.location.href.split('#')[0] + '#' + hash;
         }
+
+        newVideos.push({ url: tiktokUrl, type: 'tiktok', title: extractSmartTitle(video), element: video });
+        return; // Impede fallback HTML5 genérico
       }
 
       // Arquitetura Híbrida: Extrator Especialista para YouTube (captura de thumb)

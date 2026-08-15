@@ -432,7 +432,7 @@ document.addEventListener('DOMContentLoaded', () => {
           chrome.tabs.sendMessage(activeTab.id, { action: 'get_videos' }, (csResponse) => {
             chrome.runtime.lastError;
             if (csResponse && csResponse.videos) {
-              const vipTypes = ['twitter', 'instagram', 'facebook', 'reddit'];
+              const vipTypes = ['youtube', 'twitter', 'instagram', 'facebook', 'reddit', 'tiktok', 'hls'];
               let siteFallback = '';
               try { siteFallback = new URL(pageUrl).hostname.replace(/^www\./, ''); } catch(e){}
               const defaultTitle = siteFallback ? `Vídeo de ${siteFallback}` : 'Vídeo Web';
