@@ -138,6 +138,11 @@ function injectManualButton(v) {
     } catch(err) {}
     
     updateBadge();
+
+    setTimeout(() => {
+      btn.style.background = '#7b61ff';
+      btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`;
+    }, 2000);
   };
 
   btn.addEventListener('pointerdown', clickHandler);
@@ -408,6 +413,8 @@ function scanForVideos() {
         log('[Aster] Novo/Atualizado vídeo detectado:', v.url);
 
         try {
+          injectManualButton(v);
+          
           if (v.addedToList) {
             chrome.runtime.sendMessage({
               action: 'video_detected',
@@ -418,14 +425,12 @@ function scanForVideos() {
                 thumbnail: v.thumbnail
               }
             }).catch(() => {});
-          } else {
-            injectManualButton(v);
           }
         } catch (e) {
           // Ignora erros como "Extension context invalidated"
         }
       } else {
-        if (existing && existing.addedToList === false) {
+        if (existing) {
           injectManualButton(existing);
         }
       }
@@ -487,6 +492,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     try { sendResponse({ videos: Array.from(detectedVideos.values()).filter(v => v.addedToList !== false) }); } catch(e) {}
   } else if (request.action === 'force_scan') {
     scanForVideos();
+    
+    Array.from(detectedVideos.values()).forEach(v => {
+      if (v.addedToList === false) {
+        v.addedToList = true;
+        try {
+          chrome.runtime.sendMessage({
+            action: 'video_detected',
+            video: {
+              url: v.url,
+              type: v.type,
+              title: v.title || null,
+              thumbnail: v.thumbnail
+            }
+          }).catch(() => {});
+        } catch(err) {}
+      }
+    });
+
     try { sendResponse({ videos: Array.from(detectedVideos.values()).filter(v => v.addedToList !== false) }); } catch(e) {}
   } else if (request.action === 'get_page_metadata') {
     let thumbnail = null;

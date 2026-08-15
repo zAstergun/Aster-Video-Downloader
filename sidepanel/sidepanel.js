@@ -392,7 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  function loadVideosForActiveTab() {
+  function loadVideosForActiveTab(isForceScan = false) {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (!tabs || tabs.length === 0) return;
       const activeTab = tabs[0];
@@ -436,7 +436,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
           }
           if (!detectedVideos.find(v => v.type === 'youtube')) {
-            if (modeToggle.checked) {
+            if (modeToggle.checked || isForceScan) {
               detectedVideos.unshift({
                 url: pageUrl,
                 type: 'youtube',
@@ -463,7 +463,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (pageUrl.includes('twitter.com/') || pageUrl.includes('x.com/') || pageUrl.includes('youtube.com/') || pageUrl.includes('reddit.com/')) return;
                 if (detectedVideos.find(v => v.url === streamUrl)) return;
                 
-                if (modeToggle.checked) {
+                if (modeToggle.checked || isForceScan) {
                   detectedVideos.push({
                     url: streamUrl,
                     type: 'hls',
@@ -928,7 +928,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!tabs || tabs.length === 0) { forceScanBtn.disabled = false; return; }
         chrome.tabs.sendMessage(tabs[0].id, { action: 'force_scan' }, (response) => {
           chrome.runtime.lastError; // limpa erro se o content script não estiver injetado
-          loadVideosForActiveTab();
+          loadVideosForActiveTab(true);
           setTimeout(() => { forceScanBtn.disabled = false; }, 1000);
         });
       });
