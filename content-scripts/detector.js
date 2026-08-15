@@ -215,19 +215,27 @@ function scanForVideos() {
       
       // Fallback para HLS (blob:): envia metadata proativamente
       if (video.src && video.src.startsWith('blob:')) {
-        try {
-          if (video.readyState >= 2 && video.videoWidth > 0) {
-            const canvas = document.createElement('canvas');
-            canvas.width = 160;
-            canvas.height = 90;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0, 160, 90);
-            chrome.runtime.sendMessage({
-              action: 'set_hls_metadata',
-              thumbnail: canvas.toDataURL('image/jpeg', 0.6)
-            }).catch(()=>{});
-          }
-        } catch(e) {}
+        const sendHlsMeta = () => {
+          try {
+            if (video.readyState >= 2 && video.videoWidth > 0) {
+              const canvas = document.createElement('canvas');
+              canvas.width = 160;
+              canvas.height = 90;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(video, 0, 0, 160, 90);
+              chrome.runtime.sendMessage({
+                action: 'set_hls_metadata',
+                thumbnail: canvas.toDataURL('image/jpeg', 0.6)
+              }).catch(()=>{});
+            }
+          } catch(e) {}
+        };
+        sendHlsMeta();
+        if (!video.dataset.asterHlsListener) {
+          video.dataset.asterHlsListener = "true";
+          video.addEventListener('playing', sendHlsMeta, { once: true });
+          video.addEventListener('loadeddata', sendHlsMeta, { once: true });
+        }
       }
     });
     

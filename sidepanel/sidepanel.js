@@ -79,11 +79,47 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. Porcentagem de Download (yt-dlp ou HLS)
     const percentMatch = text.match(/(\d+(?:\.\d+)?)%/);
     if (percentMatch) {
-      const percent = Math.round(parseFloat(percentMatch[1]));
-      const speedMatch = text.match(/at\s+([\d\.]+\s*[KMGT]?i?B\/s)/i);
-      if (speedMatch) {
-        return `Baixando: ${percent}% (${speedMatch[1].replace('iB/s', 'B/s')})`;
+      const percentStr = percentMatch[1];
+      const percent = Math.round(parseFloat(percentStr));
+      
+      let downloadedStr = '';
+      const sizeMatch = text.match(/of\s+~?([\d\.]+\s*[KMGT]?i?B)/i);
+      
+      if (sizeMatch) {
+        let totalSizeStr = sizeMatch[1].replace(/iB/g, 'B'); // ex: 10.45MB
+        
+        const numMatch = totalSizeStr.match(/([\d\.]+)/);
+        const unitMatch = totalSizeStr.match(/[a-zA-Z]+/);
+        
+        if (numMatch && unitMatch) {
+          const totalNum = parseFloat(numMatch[1]);
+          const unit = unitMatch[0];
+          
+          let downloadedNum = totalNum * (parseFloat(percentStr) / 100);
+          downloadedNum = downloadedNum % 1 === 0 ? downloadedNum.toFixed(0) : downloadedNum.toFixed(2);
+          
+          downloadedStr = `${downloadedNum}${unit}/${totalSizeStr}`;
+        } else {
+          downloadedStr = `de ${totalSizeStr}`;
+        }
+      } else {
+        const fragMatch = text.match(/frag\s+(\d+)\/(\d+)/i);
+        if (fragMatch) {
+          downloadedStr = `${fragMatch[1]}/${fragMatch[2]} partes`;
+        }
       }
+      
+      const speedMatch = text.match(/at\s+([\d\.]+\s*[KMGT]?i?B\/s)/i);
+      const speedStr = speedMatch ? speedMatch[1].replace(/iB/g, 'B') : '';
+      
+      if (downloadedStr && speedStr) {
+        return `${percent}% • ${downloadedStr} • ${speedStr}`;
+      } else if (downloadedStr) {
+        return `${percent}% • ${downloadedStr}`;
+      } else if (speedStr) {
+        return `${percent}% • ${speedStr}`;
+      }
+      
       return `Baixando: ${percent}%`;
     }
 
@@ -287,6 +323,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Scan Current Tab on Open & Tab Switch
   // =========================================
   let currentTabId = null;
+  let currentTabUrl = null;
 
   chrome.runtime.onMessage.addListener((request) => {
     if (request.action === 'new_video_detected' && request.tabId === currentTabId) {
@@ -300,6 +337,21 @@ document.addEventListener('DOMContentLoaded', () => {
         renderVideoList();
       }
     }
+    if (request.action === 'hls_detected' && request.tabId === currentTabId) {
+      if (!detectedVideos.find(v => v.url === request.url)) {
+        loadVideosForActiveTab();
+      }
+    }
+    if (request.action === 'hls_metadata_updated' && request.tabId === currentTabId) {
+      let updated = false;
+      detectedVideos.forEach(v => {
+        if (v.type === 'hls' && !v.thumbnail && request.thumbnail) {
+          v.thumbnail = request.thumbnail;
+          updated = true;
+        }
+      });
+      if (updated) renderVideoList();
+    }
   });
 
   function loadVideosForActiveTab() {
@@ -307,11 +359,15 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!tabs || tabs.length === 0) return;
       const activeTab = tabs[0];
       const pageUrl = activeTab.url || '';
-      currentTabId = activeTab.id;
 
-      // Reset list
-      detectedVideos = [];
-      renderVideoList();
+      if (currentTabId !== activeTab.id || currentTabUrl !== pageUrl) {
+        detectedVideos = [];
+        renderVideoList();
+        currentTabId = activeTab.id;
+        currentTabUrl = pageUrl;
+      } else {
+        currentTabId = activeTab.id;
+      }
 
       // Pede histórico de vídeos detectados na aba
       chrome.runtime.sendMessage({ action: 'get_tab_videos' }, (response) => {
@@ -804,18 +860,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!tabs || tabs.length === 0) { forceScanBtn.disabled = false; return; }
         chrome.tabs.sendMessage(tabs[0].id, { action: 'force_scan' }, (response) => {
           chrome.runtime.lastError; // limpa erro se o content script não estiver injetado
-          if (response && response.videos) {
-            response.videos.forEach(v => {
-              if (!detectedVideos.find(existing => existing.url === v.url)) {
-                detectedVideos.unshift(v);
-              }
-            });
-            renderVideoList();
-          }
-          statusBadge.textContent = detectedVideos.length > 0
-            ? `${detectedVideos.length} vídeo(s) detectado(s)`
-            : 'Nenhum vídeo encontrado nesta página';
-          forceScanBtn.disabled = false;
+          loadVideosForActiveTab();
+          setTimeout(() => { forceScanBtn.disabled = false; }, 1000);
         });
       });
     });

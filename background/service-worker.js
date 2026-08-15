@@ -118,7 +118,7 @@ chrome.webRequest.onBeforeRequest.addListener(
           log("HLS Interceptado na aba", tabId, ":", url);
           chrome.action.setBadgeText({ text: '!', tabId: tabId });
           chrome.action.setBadgeBackgroundColor({ color: '#7b61ff', tabId: tabId });
-          chrome.runtime.sendMessage({ action: 'hls_detected', url: url }).catch(() => {});
+          chrome.runtime.sendMessage({ action: 'hls_detected', url: url, tabId: tabId }).catch(() => {});
         }
       }
     }
@@ -147,6 +147,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'set_hls_metadata') {
     if (sender.tab) {
       hlsMetadataByTab.set(sender.tab.id, request.thumbnail);
+      chrome.runtime.sendMessage({
+        action: 'hls_metadata_updated',
+        tabId: sender.tab.id,
+        thumbnail: request.thumbnail
+      }).catch(()=>{});
     }
     return;
   }
