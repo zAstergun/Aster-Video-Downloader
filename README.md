@@ -1,5 +1,10 @@
 # Aster Video Downloader
 
+<div align="center">
+  <img src="assets/readme_images/readme1.png" width="300" alt="Screenshot 1">
+  <img src="assets/readme_images/readme2.png" width="300" alt="Screenshot 2">
+</div>
+
 O Aster é uma extensão híbrida (Extensão Chrome + Companion App nativo) projetada para baixar vídeos de diversas plataformas sociais e páginas da web, com suporte avançado a HLS, conversão automática e suporte a formatos de alta resolução.
 
 ## 🚀 Como funciona a Arquitetura?
