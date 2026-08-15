@@ -43,5 +43,5 @@ Graças aos Extratores Híbridos e ao motor `yt-dlp`, o Aster suporta:
 
 ## 🚧 Limitações Conhecidas
 
-- **Plataformas:** No momento, os scripts de instalação e os binários embutidos são exclusivos para **Windows** (`.bat` / `.exe`).
+- **Plataformas:** Windows conta com instalação automatizada via `install.bat` (inclui download automático do FFmpeg). macOS/Linux têm suporte via `install.sh`, mas requerem Node.js já instalado no sistema.
 - **Resoluções HLS Múltiplas:** Ao detectar um M3U8 variante único, não listamos múltiplas qualidades ainda.

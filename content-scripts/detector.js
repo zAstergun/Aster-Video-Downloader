@@ -299,12 +299,15 @@ window.asterObserver = new MutationObserver((mutations) => {
   }
 });
 
-window.asterObserver.observe(document.body, { childList: true, subtree: true });
+window.asterObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
 
 // Escuta requisições do popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (!chrome.runtime?.id) return;
   if (request.action === 'get_videos') {
+    try { sendResponse({ videos: Array.from(detectedVideos.values()) }); } catch(e) {}
+  } else if (request.action === 'force_scan') {
+    scanForVideos();
     try { sendResponse({ videos: Array.from(detectedVideos.values()) }); } catch(e) {}
   } else if (request.action === 'get_page_metadata') {
     let thumbnail = null;

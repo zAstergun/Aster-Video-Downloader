@@ -268,108 +268,128 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // =========================================
-  // Scan Current Tab on Open
+  // Scan Current Tab on Open & Tab Switch
   // =========================================
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    if (!tabs || tabs.length === 0) return;
-    const activeTab = tabs[0];
-    const pageUrl = activeTab.url || '';
-    let currentTabId = activeTab.id;
+  let currentTabId = null;
 
-    // Apenas ouve novos vídeos da aba atual
-    chrome.runtime.onMessage.addListener((request) => {
-      if (request.action === 'new_video_detected' && request.tabId === currentTabId) {
-        const video = request.video;
-        const existing = detectedVideos.find(v => v.url === video.url);
-        if (!existing) {
-          detectedVideos.unshift(video);
-          renderVideoList();
-        } else if (!existing.thumbnail && video.thumbnail) {
-          existing.thumbnail = video.thumbnail;
-          renderVideoList();
-        }
+  chrome.runtime.onMessage.addListener((request) => {
+    if (request.action === 'new_video_detected' && request.tabId === currentTabId) {
+      const video = request.video;
+      const existing = detectedVideos.find(v => v.url === video.url);
+      if (!existing) {
+        detectedVideos.unshift(video);
+        renderVideoList();
+      } else if (!existing.thumbnail && video.thumbnail) {
+        existing.thumbnail = video.thumbnail;
+        renderVideoList();
       }
-    });
+    }
+  });
 
-    // Pede histórico de vídeos detectados na aba
-    chrome.runtime.sendMessage({ action: 'get_tab_videos' }, (response) => {
-      chrome.runtime.lastError;
-      if (response && response.videos) {
-        detectedVideos = response.videos;
-      }
-      
-      // YouTube special fallback
-      if (pageUrl.includes('youtube.com/watch') || pageUrl.includes('youtube.com/shorts') || pageUrl.includes('youtu.be/')) {
-        let ytTitle = activeTab.title ? activeTab.title.replace(/\s*-\s*YouTube$/i, '').trim() : '';
-        if (!ytTitle || ytTitle.toLowerCase() === 'youtube') {
-          try {
-            const host = new URL(pageUrl).hostname.replace(/^www\./, '');
-            ytTitle = host ? `Vídeo de ${host}` : 'Vídeo do YouTube';
-          } catch(e) {
-            ytTitle = 'Vídeo do YouTube';
-          }
-        }
-        if (!detectedVideos.find(v => v.type === 'youtube')) {
-          detectedVideos.unshift({
-            url: pageUrl,
-            type: 'youtube',
-            title: ytTitle,
-            thumbnail: null
-          });
-        }
-      }
+  function loadVideosForActiveTab() {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (!tabs || tabs.length === 0) return;
+      const activeTab = tabs[0];
+      const pageUrl = activeTab.url || '';
+      currentTabId = activeTab.id;
 
-      // HLS fallback (caso o service worker não tenha armazenado para a aba)
-      chrome.runtime.sendMessage({ action: 'get_hls_streams' }, (bgResponse) => {
-        if (bgResponse && bgResponse.streams && bgResponse.streams.length > 0) {
-          chrome.tabs.sendMessage(activeTab.id, { action: 'get_page_metadata' }, (metaResponse) => {
-            chrome.runtime.lastError; // limpa o erro se o script não estiver injetado
-            
-            let siteFallback = '';
-            try { siteFallback = new URL(pageUrl).hostname.replace(/^www\./, ''); } catch(e){}
-            const defaultHlsTitle = siteFallback ? `Vídeo de ${siteFallback}` : 'Stream HLS (.m3u8)';
-            const pageTitle = (metaResponse && metaResponse.title) ? metaResponse.title.trim() : (bgResponse.title || defaultHlsTitle);
-            const pageThumb = (metaResponse && metaResponse.thumbnail) ? metaResponse.thumbnail : (bgResponse.thumbnail || null);
+      // Reset list
+      detectedVideos = [];
+      renderVideoList();
 
-            bgResponse.streams.forEach((streamUrl) => {
-              if (pageUrl.includes('twitter.com/') || pageUrl.includes('x.com/') || pageUrl.includes('youtube.com/') || pageUrl.includes('reddit.com/')) return;
-              if (detectedVideos.find(v => v.url === streamUrl)) return;
-              
-              detectedVideos.push({
-                url: streamUrl,
-                type: 'hls',
-                title: pageTitle,
-                thumbnail: pageThumb
-              });
-            });
-            renderVideoList();
-          });
+      // Pede histórico de vídeos detectados na aba
+      chrome.runtime.sendMessage({ action: 'get_tab_videos' }, (response) => {
+        chrome.runtime.lastError;
+        if (response && response.videos) {
+          detectedVideos = response.videos;
         }
         
-        // Pede pro content script escanear ativamente pra pegar os que faltam
-        chrome.tabs.sendMessage(activeTab.id, { action: 'get_videos' }, (csResponse) => {
-          chrome.runtime.lastError;
-          if (csResponse && csResponse.videos) {
-            const vipTypes = ['twitter', 'instagram', 'facebook', 'reddit'];
-            let siteFallback = '';
-            try { siteFallback = new URL(pageUrl).hostname.replace(/^www\./, ''); } catch(e){}
-            const defaultTitle = siteFallback ? `Vídeo de ${siteFallback}` : 'Vídeo Web';
-            csResponse.videos.forEach(v => {
-              if (detectedVideos.find(existing => existing.url === v.url)) return;
-              const isVIP = vipTypes.includes(v.type);
-              detectedVideos.push({
-                url: v.url,
-                type: isVIP ? v.type : 'html5',
-                title: v.title || defaultTitle,
-                thumbnail: v.thumbnail || null
-              });
+        // YouTube special fallback
+        if (pageUrl.includes('youtube.com/watch') || pageUrl.includes('youtube.com/shorts') || pageUrl.includes('youtu.be/')) {
+          let ytTitle = activeTab.title ? activeTab.title.replace(/\s*-\s*YouTube$/i, '').trim() : '';
+          if (!ytTitle || ytTitle.toLowerCase() === 'youtube') {
+            try {
+              const host = new URL(pageUrl).hostname.replace(/^www\./, '');
+              ytTitle = host ? `Vídeo de ${host}` : 'Vídeo do YouTube';
+            } catch(e) {
+              ytTitle = 'Vídeo do YouTube';
+            }
+          }
+          if (!detectedVideos.find(v => v.type === 'youtube')) {
+            detectedVideos.unshift({
+              url: pageUrl,
+              type: 'youtube',
+              title: ytTitle,
+              thumbnail: null
             });
           }
-          renderVideoList();
+        }
+
+        // HLS fallback (caso o service worker não tenha armazenado para a aba)
+        chrome.runtime.sendMessage({ action: 'get_hls_streams' }, (bgResponse) => {
+          if (bgResponse && bgResponse.streams && bgResponse.streams.length > 0) {
+            chrome.tabs.sendMessage(activeTab.id, { action: 'get_page_metadata' }, (metaResponse) => {
+              chrome.runtime.lastError; // limpa o erro se o script não estiver injetado
+              
+              let siteFallback = '';
+              try { siteFallback = new URL(pageUrl).hostname.replace(/^www\./, ''); } catch(e){}
+              const defaultHlsTitle = siteFallback ? `Vídeo de ${siteFallback}` : 'Stream HLS (.m3u8)';
+              const pageTitle = (metaResponse && metaResponse.title) ? metaResponse.title.trim() : (bgResponse.title || defaultHlsTitle);
+              const pageThumb = (metaResponse && metaResponse.thumbnail) ? metaResponse.thumbnail : (bgResponse.thumbnail || null);
+
+              bgResponse.streams.forEach((streamUrl) => {
+                if (pageUrl.includes('twitter.com/') || pageUrl.includes('x.com/') || pageUrl.includes('youtube.com/') || pageUrl.includes('reddit.com/')) return;
+                if (detectedVideos.find(v => v.url === streamUrl)) return;
+                
+                detectedVideos.push({
+                  url: streamUrl,
+                  type: 'hls',
+                  title: pageTitle,
+                  thumbnail: pageThumb
+                });
+              });
+              renderVideoList();
+            });
+          }
+          
+          // Pede pro content script escanear ativamente pra pegar os que faltam
+          chrome.tabs.sendMessage(activeTab.id, { action: 'get_videos' }, (csResponse) => {
+            chrome.runtime.lastError;
+            if (csResponse && csResponse.videos) {
+              const vipTypes = ['twitter', 'instagram', 'facebook', 'reddit'];
+              let siteFallback = '';
+              try { siteFallback = new URL(pageUrl).hostname.replace(/^www\./, ''); } catch(e){}
+              const defaultTitle = siteFallback ? `Vídeo de ${siteFallback}` : 'Vídeo Web';
+              csResponse.videos.forEach(v => {
+                if (detectedVideos.find(existing => existing.url === v.url)) return;
+                const isVIP = vipTypes.includes(v.type);
+                detectedVideos.push({
+                  url: v.url,
+                  type: isVIP ? v.type : 'html5',
+                  title: v.title || defaultTitle,
+                  thumbnail: v.thumbnail || null
+                });
+              });
+            }
+            renderVideoList();
+          });
         });
       });
     });
+  }
+
+  chrome.tabs.onActivated.addListener((activeInfo) => {
+    currentTabId = activeInfo.tabId;
+    loadVideosForActiveTab();
   });
+
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (tabId === currentTabId && changeInfo.status === 'complete') {
+      loadVideosForActiveTab();
+    }
+  });
+
+  loadVideosForActiveTab();
 
   // =========================================
   // Render Video List
@@ -755,8 +775,34 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // =========================================
-  // Clear Detected Videos
+  // Force Scan / Clear Detected Videos
   // =========================================
+  const forceScanBtn = document.getElementById('force-scan-btn');
+  if (forceScanBtn) {
+    forceScanBtn.addEventListener('click', () => {
+      forceScanBtn.disabled = true;
+      statusBadge.textContent = 'Procurando vídeo na página...';
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (!tabs || tabs.length === 0) { forceScanBtn.disabled = false; return; }
+        chrome.tabs.sendMessage(tabs[0].id, { action: 'force_scan' }, (response) => {
+          chrome.runtime.lastError; // limpa erro se o content script não estiver injetado
+          if (response && response.videos) {
+            response.videos.forEach(v => {
+              if (!detectedVideos.find(existing => existing.url === v.url)) {
+                detectedVideos.unshift(v);
+              }
+            });
+            renderVideoList();
+          }
+          statusBadge.textContent = detectedVideos.length > 0
+            ? `${detectedVideos.length} vídeo(s) detectado(s)`
+            : 'Nenhum vídeo encontrado nesta página';
+          forceScanBtn.disabled = false;
+        });
+      });
+    });
+  }
+
   clearBtn.addEventListener('click', () => {
     chrome.runtime.sendMessage({ action: 'clear_tab_videos' });
     detectedVideos = [];

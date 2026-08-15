@@ -7,7 +7,28 @@ const m3u8Parser = require('m3u8-parser');
 
 // Helper para sanitize do nome de arquivo
 function sanitizeFilename(name) {
-  return name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  return name
+    .replace(/[\\/:*?"<>|\x00-\x1F]/g, '_')
+    .trim()
+    .slice(0, 150); // evita nomes excessivamente longos
+}
+
+function resolveBinaryPath(binName) {
+  const platform = os.platform();
+  let fileName;
+  if (binName === 'yt-dlp') {
+    fileName = platform === 'win32' ? 'yt-dlp.exe' : (platform === 'darwin' ? 'yt-dlp_macos' : 'yt-dlp');
+  } else if (binName === 'ffmpeg') {
+    fileName = platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+  }
+  const localPath = path.join(__dirname, '..', 'bin', fileName);
+  if (fs.existsSync(localPath)) {
+    if (platform !== 'win32') {
+      try { fs.chmodSync(localPath, 0o755); } catch (e) {}
+    }
+    return localPath;
+  }
+  return binName;
 }
 
 const { spawn } = require('child_process');
@@ -69,8 +90,7 @@ function cancelCurrentDownload() {
 function downloadYoutube(url, onProgress, cookies = null, quality = null, downloadFolder = null) {
   return new Promise((resolve, reject) => {
     // Procura o yt-dlp na pasta bin
-    const ytDlpPath = path.join(__dirname, '..', 'bin', 'yt-dlp.exe');
-    const executable = fs.existsSync(ytDlpPath) ? ytDlpPath : 'yt-dlp';
+    const executable = resolveBinaryPath('yt-dlp');
 
     const timestamp = Date.now();
     const tempPrefix = `aster_temp_${timestamp}`;
@@ -319,8 +339,7 @@ async function downloadHLS(url, onProgress, quality = null, cookies = null) {
 
 function getYouTubeFormats(url, cookies = null) {
   return new Promise((resolve, reject) => {
-    const ytDlpPath = path.join(__dirname, '..', 'bin', 'yt-dlp.exe');
-    const executable = fs.existsSync(ytDlpPath) ? ytDlpPath : 'yt-dlp';
+    const executable = resolveBinaryPath('yt-dlp');
     const args = ['--js-runtimes', 'node', '-J'];
     
     let cookiesFile = null;
@@ -409,8 +428,7 @@ async function getHLSFormats(url, cookies = null) {
 
 function downloadHTML5Converted(url, onProgress, quality, downloadFolder = null) {
   return new Promise((resolve, reject) => {
-    const ffmpegPath = path.join(__dirname, '..', 'bin', 'ffmpeg.exe');
-    const executable = fs.existsSync(ffmpegPath) ? ffmpegPath : 'ffmpeg';
+    const executable = resolveBinaryPath('ffmpeg');
     
     const baseFolder = os.tmpdir();
     const timestamp = Date.now();
