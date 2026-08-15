@@ -2,6 +2,17 @@
 // Aster Side Panel — Main Logic
 // ============================================
 
+let currentLanguage = 'pt-BR';
+
+function t(key, ...args) {
+  let str = (window.i18n && window.i18n[currentLanguage] && window.i18n[currentLanguage][key]) ? window.i18n[currentLanguage][key] : key;
+  args.forEach((arg, i) => {
+    str = str.replace(`{${i}}`, arg);
+  });
+  return str;
+}
+
+
 document.addEventListener('DOMContentLoaded', () => {
   const videoList = document.getElementById('video-list');
   const emptyState = document.getElementById('empty-state');
@@ -28,24 +39,76 @@ document.addEventListener('DOMContentLoaded', () => {
   chrome.storage.local.get(['aster_detection_mode'], (data) => {
     if (data.aster_detection_mode === 'manual') {
       modeToggle.checked = false;
-      modeToggleLabel.textContent = 'Manual';
+      modeToggleLabel.textContent = t('mode_manual');
       modeToggleLabel.style.color = 'var(--text-muted)';
     } else {
       modeToggle.checked = true;
-      modeToggleLabel.textContent = 'Auto';
+      modeToggleLabel.textContent = t('mode_auto');
       modeToggleLabel.style.color = 'var(--accent)';
     }
   });
+
+  const languageSelect = document.getElementById('language-select');
+
+  function applyLanguage(lang) {
+    if (lang === 'system') {
+      const sysLang = navigator.language;
+      lang = (window.i18n && window.i18n[sysLang]) ? sysLang : (sysLang.startsWith('pt') ? 'pt-BR' : 'en-US');
+    }
+    if (!window.i18n || !window.i18n[lang]) lang = 'en-US';
+    currentLanguage = lang;
+
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      if (window.i18n && window.i18n[lang] && window.i18n[lang][key]) {
+        el.textContent = window.i18n[lang][key];
+      }
+    });
+
+    document.querySelectorAll('[data-i18n-title]').forEach(el => {
+      const key = el.getAttribute('data-i18n-title');
+      if (window.i18n && window.i18n[lang] && window.i18n[lang][key]) {
+        el.setAttribute('title', window.i18n[lang][key]);
+      }
+    });
+  }
+
+  chrome.storage.sync.get(['aster_language'], (data) => {
+    let savedLang = data.aster_language || 'system';
+    if (languageSelect) languageSelect.value = savedLang;
+    applyLanguage(savedLang);
+    
+    // Update dynamic initial texts
+    if (modeToggle.checked) {
+      modeToggleLabel.textContent = t('mode_auto');
+    } else {
+      modeToggleLabel.textContent = t('mode_manual');
+    }
+    if (statusBadge.textContent === 'Aguardando vídeos...' || statusBadge.textContent === 'Waiting for videos...') {
+      statusBadge.textContent = t('status_waiting');
+    }
+  });
+
+  if (languageSelect) {
+    languageSelect.addEventListener('change', (e) => {
+      const lang = e.target.value;
+      chrome.storage.sync.set({ aster_language: lang });
+      applyLanguage(lang);
+      renderVideoList();
+      renderHistory();
+      if (panelTrash && panelTrash.style.display !== 'none') renderTrash();
+    });
+  }
 
   modeToggle.addEventListener('change', (e) => {
     const isAuto = e.target.checked;
     const mode = isAuto ? 'auto' : 'manual';
     
     if (isAuto) {
-      modeToggleLabel.textContent = 'Auto';
+      modeToggleLabel.textContent = t('mode_auto');
       modeToggleLabel.style.color = 'var(--accent)';
     } else {
-      modeToggleLabel.textContent = 'Manual';
+      modeToggleLabel.textContent = t('mode_manual');
       modeToggleLabel.style.color = 'var(--text-muted)';
     }
 
@@ -56,21 +119,28 @@ document.addEventListener('DOMContentLoaded', () => {
   let detectedVideos = [];
 
   // =========================================
-  // Donation Banner
+  // Help Modal
   // =========================================
-  const donateBanner = document.getElementById('donate-banner');
-  const donateClose = document.getElementById('donate-close');
+  const helpModal = document.getElementById('help-modal');
+  const noVideoBtn = document.getElementById('no-video-btn');
+  const closeHelpModal = document.getElementById('close-help-modal');
 
-  chrome.storage.local.get('aster_donate_dismissed', (data) => {
-    if (data.aster_donate_dismissed) {
-      donateBanner.classList.add('hidden');
-    }
-  });
+  if (noVideoBtn && helpModal && closeHelpModal) {
+    noVideoBtn.addEventListener('click', () => {
+      helpModal.style.display = 'flex';
+    });
 
-  donateClose.addEventListener('click', () => {
-    donateBanner.classList.add('hidden');
-    chrome.storage.local.set({ aster_donate_dismissed: true });
-  });
+    closeHelpModal.addEventListener('click', () => {
+      helpModal.style.display = 'none';
+    });
+
+    // Close when clicking outside
+    helpModal.addEventListener('click', (e) => {
+      if (e.target === helpModal) {
+        helpModal.style.display = 'none';
+      }
+    });
+  }
 
   // =========================================
   // Panel Navigation
@@ -272,13 +342,13 @@ document.addEventListener('DOMContentLoaded', () => {
            });
         }
       } else if (msg.status === 'success') {
-        statusBadge.textContent = 'Concluído!';
-        statusBadge.title = 'Download concluído com sucesso';
+        statusBadge.textContent = t('status_completed');
+        statusBadge.title = t('notif_download_success_desc');
         statusBadge.style.color = '#10b981';
         statusBadge.style.background = 'rgba(16, 185, 129, 0.15)';
         statusBadge.style.borderColor = 'rgba(16, 185, 129, 0.25)';
         setTimeout(() => {
-          statusBadge.textContent = 'Aguardando vídeos...';
+          statusBadge.textContent = t('status_waiting');
           statusBadge.title = '';
           statusBadge.style.color = '';
           statusBadge.style.background = '';
@@ -296,9 +366,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // Notify UI that a download finished
         document.dispatchEvent(new CustomEvent('aster_download_finished', { detail: { url: request.url } }));
       } else if (msg.status === 'error') {
-        let errorMsg = msg.error || 'Falha ao processar';
+        let errorMsg = msg.error || t('notif_download_error_fallback');
         if (errorMsg.includes('yt-dlp falhou') || errorMsg.includes('bin')) {
-          errorMsg = 'Erro no conversor local';
+          errorMsg = t('err_companion_missing');
         } else if (errorMsg.length > 30) {
           errorMsg = errorMsg.substring(0, 30) + '…';
         }
@@ -308,7 +378,7 @@ document.addEventListener('DOMContentLoaded', () => {
         statusBadge.style.background = 'rgba(239, 68, 68, 0.15)';
         statusBadge.style.borderColor = 'rgba(239, 68, 68, 0.25)';
         setTimeout(() => {
-          statusBadge.textContent = 'Aguardando vídeos...';
+          statusBadge.textContent = t('status_waiting');
           statusBadge.title = '';
           statusBadge.style.color = '';
           statusBadge.style.background = '';
@@ -326,10 +396,10 @@ document.addEventListener('DOMContentLoaded', () => {
         // Notify UI that a download errored
         document.dispatchEvent(new CustomEvent('aster_download_finished', { detail: { url: request.url } }));
       } else if (msg.status === 'cancelled') {
-        statusBadge.textContent = 'Download cancelado';
+        statusBadge.textContent = t('btn_cancel') + 'ado'; // Roughly Download cancelado
         statusBadge.title = '';
         setTimeout(() => {
-          statusBadge.textContent = 'Aguardando vídeos...';
+          statusBadge.textContent = t('status_waiting');
           statusBadge.style.color = '';
           statusBadge.style.background = '';
           statusBadge.style.borderColor = '';
@@ -528,8 +598,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     emptyState.style.display = 'none';
-    videoCount.textContent = `${detectedVideos.length} vídeo(s)`;
-    statusBadge.textContent = `${detectedVideos.length} vídeo(s) detectado(s)`;
+    videoCount.textContent = detectedVideos.length === 1 ? t('one_video') : t('multiple_videos', detectedVideos.length);
+    statusBadge.textContent = videoCount.textContent;
 
     detectedVideos.forEach((video, index) => {
       const card = document.createElement('div');
@@ -585,7 +655,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const title = document.createElement('div');
       title.className = 'video-card-title';
-      title.textContent = video.title || `Vídeo ${detectedVideos.length - index}`;
+      title.textContent = video.title || t('fallback_no_title');
       body.appendChild(title);
 
       // Meta badges
@@ -613,16 +683,16 @@ document.addEventListener('DOMContentLoaded', () => {
       qualitySelect.className = 'quality-select';
 
       if (isVIP) {
-        qualitySelect.innerHTML = '<option value="">Carregando...</option>';
+        qualitySelect.innerHTML = `<option value="">${t('qual_loading')}</option>`;
         qualitySelect.disabled = true;
         fetchFormats(video, qualitySelect);
       } else {
         qualitySelect.innerHTML = `
-          <option value="best">Melhor qualidade</option>
+          <option value="best">${t('qual_best')}</option>
           <option value="1080p">MP4 1080p</option>
           <option value="720p">MP4 720p</option>
           <option value="480p">MP4 480p</option>
-          <option value="audio">Áudio (MP3)</option>
+          <option value="audio">${t('qual_audio')}</option>
         `;
       }
       actions.appendChild(qualitySelect);
@@ -646,7 +716,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const dlBtn = document.createElement('button');
       dlBtn.className = 'download-btn';
-      dlBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Baixar';
+      dlBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> ' + t('btn_download');
       dlBtn.style.flex = '1';
       if (isVIP) {
         dlBtn.disabled = true;
@@ -658,7 +728,7 @@ document.addEventListener('DOMContentLoaded', () => {
       
       const cancelBtn = document.createElement('button');
       cancelBtn.className = 'download-btn';
-      cancelBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg> Cancelar';
+      cancelBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg> ' + t('btn_cancel');
       cancelBtn.style.display = 'none';
       cancelBtn.style.background = '#ef4444';
       cancelBtn.style.width = '100%';
@@ -764,12 +834,12 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
         if (!response || !response.formats) {
-          qualitySelect.innerHTML = '<option value="best">Melhor qualidade disponível</option>';
+          qualitySelect.innerHTML = `<option value="best">${t('qual_best_avail')}</option>`;
           ['1080', '720', '480', '360'].forEach(h => {
             qualitySelect.innerHTML += `<option value="${h}p">MP4 ${h}p</option>`;
           });
         } else {
-          qualitySelect.innerHTML = '<option value="best">Melhor qualidade disponível</option>';
+          qualitySelect.innerHTML = `<option value="best">${t('qual_best_avail')}</option>`;
           if (response.formats.length > 0) {
             response.formats.forEach(f => {
               qualitySelect.innerHTML += `<option value="${f.height}p">MP4 ${f.height}p (${f.width}x${f.height})</option>`;
@@ -793,7 +863,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
           }
         }
-        qualitySelect.innerHTML += '<option value="audio">Áudio (MP3)</option>';
+        qualitySelect.innerHTML += `<option value="audio">${t('qual_audio')}</option>`;
         qualitySelect.disabled = false;
         
         // Enable download button
@@ -842,11 +912,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
           }
           if (response && response.formats && response.formats.length > 0) {
-            qualitySelect.innerHTML = '<option value="best">Melhor qualidade disponível</option>';
+            qualitySelect.innerHTML = `<option value="best">${t('qual_best_avail')}</option>`;
             response.formats.forEach(f => {
               qualitySelect.innerHTML += `<option value="${f.height}p">MP4 ${f.height}p (${f.width}x${f.height})</option>`;
             });
-            qualitySelect.innerHTML += '<option value="audio">Áudio (MP3)</option>';
+            qualitySelect.innerHTML += `<option value="audio">${t('qual_audio')}</option>`;
             qualitySelect.disabled = false;
 
             const card = qualitySelect.closest('.video-card');
@@ -941,9 +1011,33 @@ document.addEventListener('DOMContentLoaded', () => {
     renderVideoList();
     statusBadge.textContent = 'Lista limpa';
     setTimeout(() => {
-      statusBadge.textContent = 'Aguardando vídeos...';
+      statusBadge.textContent = t('status_waiting');
     }, 2000);
   });
+
+  const downloadAllBtn = document.getElementById('download-all-btn');
+  if (downloadAllBtn) {
+    downloadAllBtn.addEventListener('click', () => {
+      if (!detectedVideos || detectedVideos.length === 0) return;
+      detectedVideos.forEach(video => {
+        const card = document.querySelector(`.video-card[data-url="${video.url}"]`);
+        let quality = 'best';
+        if (card) {
+          const select = card.querySelector('.quality-select');
+          if (select) quality = select.value;
+        }
+        downloadVideo(video, quality);
+        
+        // Hide download buttons and show cancel on the card
+        if (card) {
+          const btnRow = card.querySelector('.video-card-actions > div[style*="display: flex"]');
+          const cancelBtn = card.querySelector('.download-btn:last-child'); // The cancel button
+          if (btnRow) btnRow.style.display = 'none';
+          if (cancelBtn) cancelBtn.style.display = 'flex';
+        }
+      });
+    });
+  }
 
   // =========================================
   // History & Trash Panels
@@ -1001,7 +1095,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="history-item-meta" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
             <div style="display: flex; gap: 8px; align-items: center;">
               <span>${new Date(item.timestamp).toLocaleString()}</span>
-              <span class="${item.status === 'success' ? 'history-status-success' : 'history-status-error'}">${item.status === 'success' ? '✓ Concluído' : '✗ Falha'}</span>
+              <span class="${item.status === 'success' ? 'history-status-success' : 'history-status-error'}">${item.status === 'success' ? '✓ ' + t('status_completed') : '✗ ' + t('btn_failed')}</span>
             </div>
             ${item.url ? `<a href="${item.url}" target="_blank" title="Abrir link original" style="color: var(--accent); background: rgba(123, 97, 255, 0.15); padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: background 0.2s;"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> Link</a>` : ''}
           </div>
@@ -1079,7 +1173,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="history-item-meta" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
             <div style="display: flex; gap: 8px; align-items: center;">
               <span>Excluído: ${new Date(item.deletedAt || item.timestamp).toLocaleDateString()}</span>
-              <span class="${item.status === 'success' ? 'history-status-success' : 'history-status-error'}">${item.status === 'success' ? '✓ Concluído' : '✗ Falha'}</span>
+              <span class="${item.status === 'success' ? 'history-status-success' : 'history-status-error'}">${item.status === 'success' ? '✓ ' + t('status_completed') : '✗ ' + t('btn_failed')}</span>
             </div>
             ${item.url ? `<a href="${item.url}" target="_blank" title="Abrir link original" style="color: var(--accent); background: rgba(123, 97, 255, 0.15); padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: background 0.2s;"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> Link</a>` : ''}
           </div>
@@ -1146,6 +1240,22 @@ document.addEventListener('DOMContentLoaded', () => {
       chrome.storage.local.get('aster_settings', (data) => {
         const settings = data.aster_settings || {};
         settings.notificationsEnabled = notificationsToggle.checked;
+        chrome.storage.local.set({ aster_settings: settings });
+      });
+    });
+  }
+
+  const showButtonToggle = document.getElementById('show-button-toggle');
+  if (showButtonToggle) {
+    chrome.storage.local.get('aster_settings', (data) => {
+      const settings = data.aster_settings || {};
+      showButtonToggle.checked = settings.showVideoHoverButton !== false;
+    });
+
+    showButtonToggle.addEventListener('change', () => {
+      chrome.storage.local.get('aster_settings', (data) => {
+        const settings = data.aster_settings || {};
+        settings.showVideoHoverButton = showButtonToggle.checked;
         chrome.storage.local.set({ aster_settings: settings });
       });
     });

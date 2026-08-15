@@ -1,13 +1,14 @@
 {
   "name": "aster-companion-app",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "description": "Companion app para o Aster Video Downloader",
   "main": "src/main.js",
   "bin": "src/main.js",
   "scripts": {
     "start": "node src/main.js",
     "build": "node scripts/build-with-icon.js",
-    "build:pkg": "pkg ."
+    "build:pkg": "pkg .",
+    "build:installer": "node scripts/build-installer.js"
   },
   "pkg": {
     "targets": [

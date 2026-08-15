@@ -4,16 +4,58 @@ function log(...args) { if (DEBUG) console.log(...args); }
 
 let detectedVideos = new Map(); // Usando Map para evitar URLs duplicadas
 let currentMode = 'auto';
+let showHoverButton = true;
+let currentLanguage = 'pt-BR';
+
+function t(key, ...args) {
+  let str = (window.i18n && window.i18n[currentLanguage] && window.i18n[currentLanguage][key]) ? window.i18n[currentLanguage][key] : (key === 'btn_add_to_aster' ? 'Adicionar ao Aster' : key);
+  args.forEach((arg, i) => {
+    str = str.replace(`{${i}}`, arg);
+  });
+  return str;
+}
 
 try {
-  chrome.storage.local.get(['aster_detection_mode'], (result) => {
+  chrome.storage.sync.get(['aster_language'], (data) => {
+    let savedLang = data.aster_language || 'system';
+    if (savedLang === 'system') {
+      const sysLang = navigator.language;
+      currentLanguage = (window.i18n && window.i18n[sysLang]) ? sysLang : (sysLang.startsWith('pt') ? 'pt-BR' : 'en-US');
+    } else {
+      currentLanguage = savedLang;
+    }
+  });
+
+  chrome.storage.local.get(['aster_detection_mode', 'aster_settings'], (result) => {
     if (result.aster_detection_mode) currentMode = result.aster_detection_mode;
+    if (result.aster_settings) {
+      showHoverButton = result.aster_settings.showVideoHoverButton !== false;
+    }
     scanForVideos();
   });
 
   chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace === 'local' && changes.aster_detection_mode) {
-      currentMode = changes.aster_detection_mode.newValue;
+    if (namespace === 'sync' && changes.aster_language) {
+      let savedLang = changes.aster_language.newValue;
+      if (savedLang === 'system') {
+        const sysLang = navigator.language;
+        currentLanguage = (window.i18n && window.i18n[sysLang]) ? sysLang : (sysLang.startsWith('pt') ? 'pt-BR' : 'en-US');
+      } else {
+        currentLanguage = savedLang;
+      }
+    }
+    if (namespace === 'local') {
+      if (changes.aster_detection_mode) {
+        currentMode = changes.aster_detection_mode.newValue;
+      }
+      if (changes.aster_settings) {
+        const settings = changes.aster_settings.newValue || {};
+        showHoverButton = settings.showVideoHoverButton !== false;
+        
+        if (!showHoverButton) {
+          document.querySelectorAll('.aster-manual-btn').forEach(btn => btn.remove());
+        }
+      }
     }
   });
 } catch(e) {
@@ -62,13 +104,14 @@ function extractSmartTitle(element) {
 
     // 5. Fallback: Nome do site / hostname (ex: "kiwify.com.br", "vimeo.com")
     const hostname = window.location.hostname.replace(/^www\./, '');
-    if (hostname) return `Vídeo de ${hostname}`;
+    if (hostname) return t('fallback_no_title') + ` (${hostname})`;
   } catch (e) {}
 
-  return 'Vídeo Web';
+  return t('fallback_no_title');
 }
 
 function injectManualButton(v) {
+  if (!showHoverButton) return;
   if (!v.element) return;
   const videoEl = v.element;
 
@@ -92,7 +135,7 @@ function injectManualButton(v) {
   const btn = document.createElement('button');
   btn.className = 'aster-manual-btn';
   btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`;
-  btn.title = 'Adicionar ao Aster';
+  btn.title = t('btn_add_to_aster');
   
   Object.assign(btn.style, {
     position: 'absolute',

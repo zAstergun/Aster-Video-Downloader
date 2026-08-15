@@ -116,3 +116,34 @@ process.stdin.on('end', () => {
 process.on('exit', () => {
   downloader.cancelCurrentDownload();
 });
+
+const { getBinFolder } = require('./paths');
+const path = require('path');
+
+function checkFirstRun() {
+  const binFolder = getBinFolder();
+  let needsDownload = false;
+  
+  if (!fs.existsSync(binFolder)) {
+    needsDownload = true;
+  } else {
+    const platform = process.platform;
+    const ytdlpFile = platform === 'win32' ? 'yt-dlp.exe' : (platform === 'darwin' ? 'yt-dlp_macos' : 'yt-dlp');
+    if (!fs.existsSync(path.join(binFolder, ytdlpFile))) needsDownload = true;
+    if (platform === 'win32' && (!fs.existsSync(path.join(binFolder, 'ffmpeg.exe')))) needsDownload = true;
+  }
+
+  if (needsDownload) {
+    sendMessage({ status: 'info', text: 'Configurando o Aster pela primeira vez — baixando componentes necessários...' });
+    updater.updateAll((progressMsg) => {
+      sendMessage({ status: 'progress', text: progressMsg });
+    }).then(result => {
+      sendMessage({ status: 'success', text: 'Componentes baixados com sucesso!' });
+    }).catch(err => {
+      sendMessage({ status: 'error', error: 'Falha ao baixar componentes: ' + err.message });
+    });
+  }
+}
+
+// Executar checagem na inicialização
+checkFirstRun();

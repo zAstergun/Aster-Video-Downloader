@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Aster Video Downloader",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "description": "Download videos from any website.",
   "permissions": [
     "activeTab",
@@ -26,6 +26,7 @@
         "<all_urls>"
       ],
       "js": [
+        "assets/i18n.js",
         "content-scripts/detector.js"
       ],
       "run_at": "document_end",

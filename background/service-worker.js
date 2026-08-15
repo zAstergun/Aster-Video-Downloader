@@ -1,7 +1,39 @@
 // Service Worker base para a extensão Aster (Manifest V3)
+importScripts('../assets/i18n.js');
+
 const DEBUG = false;
 function log(...args) { if (DEBUG) console.log(...args); }
 function errLog(...args) { if (DEBUG) console.error(...args); }
+
+let currentLanguage = 'pt-BR';
+chrome.storage.sync.get(['aster_language'], (data) => {
+  let savedLang = data.aster_language || 'system';
+  if (savedLang === 'system') {
+    const sysLang = navigator.language;
+    currentLanguage = (i18n && i18n[sysLang]) ? sysLang : (sysLang.startsWith('pt') ? 'pt-BR' : 'en-US');
+  } else {
+    currentLanguage = savedLang;
+  }
+});
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (namespace === 'sync' && changes.aster_language) {
+    let savedLang = changes.aster_language.newValue;
+    if (savedLang === 'system') {
+      const sysLang = navigator.language;
+      currentLanguage = (i18n && i18n[sysLang]) ? sysLang : (sysLang.startsWith('pt') ? 'pt-BR' : 'en-US');
+    } else {
+      currentLanguage = savedLang;
+    }
+  }
+});
+
+function t(key, ...args) {
+  let str = (i18n && i18n[currentLanguage] && i18n[currentLanguage][key]) ? i18n[currentLanguage][key] : key;
+  args.forEach((arg, i) => {
+    str = str.replace(`{${i}}`, arg);
+  });
+  return str;
+}
 
 // Armazenamento de streams HLS interceptados (Map de tabId -> url)
 const interceptedStreams = new Map();
@@ -30,12 +62,12 @@ chrome.downloads.onChanged.addListener((delta) => {
     downloadInfo.port.disconnect();
     
     const status = delta.state.current === 'complete' ? 'success' : 'error';
-    const notifTitle = status === 'success' ? 'Download Concluído' : 'Download Interrompido';
+    const notifTitle = status === 'success' ? t('notif_download_success_title') : t('notif_download_interrupted_title');
     
     // Notifica o sidepanel que o download terminou (para esconder o botão cancelar)
     chrome.runtime.sendMessage({
       action: 'companion_progress',
-      data: { status: status, url: downloadInfo.url, text: status === 'success' ? 'Concluído!' : 'Interrompido' },
+      data: { status: status, url: downloadInfo.url, text: status === 'success' ? t('status_completed') : t('notif_download_interrupted_desc') },
       url: downloadInfo.url
     }).catch(() => {});
     
@@ -46,7 +78,7 @@ chrome.downloads.onChanged.addListener((delta) => {
           type: 'basic',
           iconUrl: '/assets/icon.png',
           title: notifTitle,
-          message: downloadInfo.title || 'Vídeo salvo com sucesso.'
+          message: downloadInfo.title || t('notif_download_success_desc')
         }).catch(() => {});
       }
     });
@@ -55,7 +87,7 @@ chrome.downloads.onChanged.addListener((delta) => {
        const history = histData.aster_history || [];
        history.push({
          url: downloadInfo.url,
-         title: downloadInfo.title || 'Sem título',
+         title: downloadInfo.title || t('fallback_no_title'),
          status: status,
          timestamp: Date.now()
        });
@@ -396,8 +428,8 @@ function executeCompanionDownload(job) {
               chrome.notifications.create({
                 type: 'basic',
                 iconUrl: '/assets/icon.png',
-                title: 'Erro no Download',
-                message: (title || 'Falha ao processar') + '\n' + (msg.error || '')
+                title: t('notif_download_error_title'),
+                message: (title || t('notif_download_error_fallback')) + '\n' + (msg.error || '')
               }).catch(() => {});
             }
           });

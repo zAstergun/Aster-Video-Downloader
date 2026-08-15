@@ -282,7 +282,7 @@ async function updateAll(onProgress) {
     ffmpegResult = `Erro FFmpeg: ${err.message}`;
   }
 
-  return `${ytResult}\\n${ffmpegResult}`;
+  return `${ytResult}\n${ffmpegResult}`;
 }
 
 module.exports = { updateAll, updateYtDlp, updateFfmpeg };
