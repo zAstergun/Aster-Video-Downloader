@@ -3,7 +3,22 @@ const DEBUG = false;
 function log(...args) { if (DEBUG) console.log(...args); }
 
 let detectedVideos = new Map(); // Usando Map para evitar URLs duplicadas
+let currentMode = 'auto';
 
+try {
+  chrome.storage.local.get(['aster_detection_mode'], (result) => {
+    if (result.aster_detection_mode) currentMode = result.aster_detection_mode;
+    scanForVideos();
+  });
+
+  chrome.storage.onChanged.addListener((changes, namespace) => {
+    if (namespace === 'local' && changes.aster_detection_mode) {
+      currentMode = changes.aster_detection_mode.newValue;
+    }
+  });
+} catch(e) {
+  scanForVideos();
+}
 function extractSmartTitle(element) {
   try {
     // 1. Atributo title ou aria-label do elemento
@@ -51,6 +66,84 @@ function extractSmartTitle(element) {
   } catch (e) {}
 
   return 'Vídeo Web';
+}
+
+function injectManualButton(v) {
+  if (!v.element) return;
+  const videoEl = v.element;
+
+  if (videoEl.parentElement && videoEl.parentElement.querySelector('.aster-manual-btn')) {
+    return;
+  }
+
+  let parent = videoEl.parentElement;
+  if (!parent) return;
+
+  if (window.location.hostname.includes('youtube.com')) {
+    const player = videoEl.closest('.html5-video-player');
+    if (player) parent = player;
+  }
+  
+  const parentPos = window.getComputedStyle(parent).position;
+  if (parentPos === 'static') {
+    parent.style.position = 'relative';
+  }
+
+  const btn = document.createElement('button');
+  btn.className = 'aster-manual-btn';
+  btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`;
+  btn.title = 'Adicionar ao Aster';
+  
+  Object.assign(btn.style, {
+    position: 'absolute',
+    top: '12px',
+    right: '65px',
+    zIndex: '999999',
+    background: '#7b61ff',
+    color: 'white',
+    border: 'none',
+    borderRadius: '50%',
+    width: '36px',
+    height: '36px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+    transition: 'transform 0.2s, background 0.2s'
+  });
+
+  btn.onmouseover = () => btn.style.transform = 'scale(1.1)';
+  btn.onmouseout = () => btn.style.transform = 'scale(1)';
+
+  const clickHandler = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    v.addedToList = true;
+    
+    btn.style.background = '#10b981';
+    btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+    
+    try {
+      chrome.runtime.sendMessage({
+        action: 'video_detected',
+        video: {
+          url: v.url,
+          type: v.type,
+          title: v.title || null,
+          thumbnail: v.thumbnail
+        }
+      }).catch(() => {});
+    } catch(err) {}
+    
+    updateBadge();
+  };
+
+  btn.addEventListener('pointerdown', clickHandler);
+  btn.addEventListener('click', clickHandler);
+
+  parent.appendChild(btn);
 }
 
 function scanForVideos() {
@@ -267,18 +360,30 @@ function scanForVideos() {
     newVideos.forEach(v => {
       // Tentar capturar thumbnail do elemento <video> via canvas
       let thumbnail = null;
-      try {
-        const videoEl = v.element || document.querySelector('video');
-        if (videoEl && videoEl.readyState >= 2 && videoEl.videoWidth > 0) {
-          const canvas = document.createElement('canvas');
-          canvas.width = 160;
-          canvas.height = 90;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(videoEl, 0, 0, 160, 90);
-          thumbnail = canvas.toDataURL('image/jpeg', 0.6);
+      if (v.type === 'youtube') {
+         try {
+           const ytUrl = new URL(v.url);
+           let vidId = null;
+           if (ytUrl.searchParams.has('v')) vidId = ytUrl.searchParams.get('v');
+           else if (ytUrl.pathname.includes('/shorts/')) vidId = ytUrl.pathname.split('/shorts/')[1];
+           if (vidId) thumbnail = `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`;
+         } catch(e) {}
+      }
+      
+      if (!thumbnail) {
+        try {
+          const videoEl = v.element || document.querySelector('video');
+          if (videoEl && videoEl.readyState >= 2 && videoEl.videoWidth > 0) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 160;
+            canvas.height = 90;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(videoEl, 0, 0, 160, 90);
+            thumbnail = canvas.toDataURL('image/jpeg', 0.6);
+          }
+        } catch (e) {
+          // Cross-origin ou DRM, thumbnail ficará null
         }
-      } catch (e) {
-        // Cross-origin ou DRM, thumbnail ficará null
       }
 
       const isNew = !detectedVideos.has(v.url);
@@ -288,6 +393,13 @@ function scanForVideos() {
 
       if (isNew || needsThumbnailUpdate || (isCurrentPage && window.asterLastMainUrl !== v.url)) {
         v.thumbnail = thumbnail || (existing ? existing.thumbnail : null);
+        
+        if (isNew) {
+          v.addedToList = (currentMode === 'auto');
+        } else {
+          v.addedToList = existing.addedToList;
+        }
+
         detectedVideos.delete(v.url);
         detectedVideos.set(v.url, v);
         
@@ -296,20 +408,25 @@ function scanForVideos() {
         log('[Aster] Novo/Atualizado vídeo detectado:', v.url);
 
         try {
-          // Envia em tempo real para o Side Panel via background relay
-          chrome.runtime.sendMessage({
-            action: 'video_detected',
-            video: {
-              url: v.url,
-              type: v.type,
-              title: v.title || null,
-              thumbnail: v.thumbnail
-            }
-          }).catch(() => {
-            // Side panel pode estar fechado
-          });
+          if (v.addedToList) {
+            chrome.runtime.sendMessage({
+              action: 'video_detected',
+              video: {
+                url: v.url,
+                type: v.type,
+                title: v.title || null,
+                thumbnail: v.thumbnail
+              }
+            }).catch(() => {});
+          } else {
+            injectManualButton(v);
+          }
         } catch (e) {
           // Ignora erros como "Extension context invalidated"
+        }
+      } else {
+        if (existing && existing.addedToList === false) {
+          injectManualButton(existing);
         }
       }
     });
@@ -324,7 +441,7 @@ function scanForVideos() {
 }
 
 function updateBadge() {
-  const count = detectedVideos.size;
+  const count = Array.from(detectedVideos.values()).filter(v => v.addedToList !== false).length;
   try {
     chrome.runtime.sendMessage({
       action: 'update_badge', // No futuro o background pode lidar com isso
@@ -337,8 +454,7 @@ function updateBadge() {
   }
 }
 
-// Inicializa o escaneamento
-scanForVideos();
+// Inicializa o escaneamento já movido para dentro do get do storage
 
 // Cria um observer para detectar vídeos adicionados dinamicamente ao DOM
 window.asterObserver = new MutationObserver((mutations) => {
@@ -368,10 +484,10 @@ window.asterObserver.observe(document.body, { childList: true, subtree: true, at
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (!chrome.runtime?.id) return;
   if (request.action === 'get_videos') {
-    try { sendResponse({ videos: Array.from(detectedVideos.values()) }); } catch(e) {}
+    try { sendResponse({ videos: Array.from(detectedVideos.values()).filter(v => v.addedToList !== false) }); } catch(e) {}
   } else if (request.action === 'force_scan') {
     scanForVideos();
-    try { sendResponse({ videos: Array.from(detectedVideos.values()) }); } catch(e) {}
+    try { sendResponse({ videos: Array.from(detectedVideos.values()).filter(v => v.addedToList !== false) }); } catch(e) {}
   } else if (request.action === 'get_page_metadata') {
     let thumbnail = null;
     const videoEl = document.querySelector('video');

@@ -15,6 +15,14 @@
       <h1>Aster</h1>
     </div>
     <div class="header-actions">
+      <!-- Mode Toggle -->
+      <div class="mode-toggle-container" style="display: flex; align-items: center; gap: 6px; margin-right: 4px;">
+        <span id="mode-toggle-label" style="font-size: 11px; font-weight: 600; color: var(--accent); text-transform: uppercase;">Auto</span>
+        <label class="toggle-switch" style="transform: scale(0.7); transform-origin: right center;">
+          <input type="checkbox" id="mode-toggle" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
       <button id="force-scan-btn" class="icon-btn" title="Não encontrou seu vídeo? Clique aqui para procurar de novo na página.">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 2v6h-6"></path>

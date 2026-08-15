@@ -21,6 +21,37 @@ document.addEventListener('DOMContentLoaded', () => {
   const backFromSettings = document.getElementById('back-from-settings');
   const backFromTrash = document.getElementById('back-from-trash');
 
+  const modeToggle = document.getElementById('mode-toggle');
+  const modeToggleLabel = document.getElementById('mode-toggle-label');
+
+  // Inicializa estado do toggle de modo de detecção
+  chrome.storage.local.get(['aster_detection_mode'], (data) => {
+    if (data.aster_detection_mode === 'manual') {
+      modeToggle.checked = false;
+      modeToggleLabel.textContent = 'Manual';
+      modeToggleLabel.style.color = 'var(--text-muted)';
+    } else {
+      modeToggle.checked = true;
+      modeToggleLabel.textContent = 'Auto';
+      modeToggleLabel.style.color = 'var(--accent)';
+    }
+  });
+
+  modeToggle.addEventListener('change', (e) => {
+    const isAuto = e.target.checked;
+    const mode = isAuto ? 'auto' : 'manual';
+    
+    if (isAuto) {
+      modeToggleLabel.textContent = 'Auto';
+      modeToggleLabel.style.color = 'var(--accent)';
+    } else {
+      modeToggleLabel.textContent = 'Manual';
+      modeToggleLabel.style.color = 'var(--text-muted)';
+    }
+
+    chrome.storage.local.set({ aster_detection_mode: mode });
+  });
+
   // Estado local: vídeos detectados no painel
   let detectedVideos = [];
 
@@ -326,7 +357,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentTabUrl = null;
 
   chrome.runtime.onMessage.addListener((request) => {
-    if (request.action === 'new_video_detected' && request.tabId === currentTabId) {
+    if (request.action === 'new_video_detected') {
+      if (modeToggle.checked && request.tabId !== currentTabId) return;
       const video = request.video;
       const existingIdx = detectedVideos.findIndex(v => v.url === video.url);
       if (existingIdx === -1) {
@@ -341,12 +373,14 @@ document.addEventListener('DOMContentLoaded', () => {
         renderVideoList();
       }
     }
-    if (request.action === 'hls_detected' && request.tabId === currentTabId) {
+    if (request.action === 'hls_detected') {
+      if (!modeToggle.checked || request.tabId !== currentTabId) return;
       if (!detectedVideos.find(v => v.url === request.url)) {
         loadVideosForActiveTab();
       }
     }
-    if (request.action === 'hls_metadata_updated' && request.tabId === currentTabId) {
+    if (request.action === 'hls_metadata_updated') {
+      if (modeToggle.checked && request.tabId !== currentTabId) return;
       let updated = false;
       detectedVideos.forEach(v => {
         if (v.type === 'hls' && !v.thumbnail && request.thumbnail) {
@@ -365,7 +399,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const pageUrl = activeTab.url || '';
 
       if (currentTabId !== activeTab.id || currentTabUrl !== pageUrl) {
-        detectedVideos = [];
+        if (modeToggle.checked) {
+          detectedVideos = [];
+        }
         renderVideoList();
         currentTabId = activeTab.id;
         currentTabUrl = pageUrl;
@@ -377,7 +413,15 @@ document.addEventListener('DOMContentLoaded', () => {
       chrome.runtime.sendMessage({ action: 'get_tab_videos' }, (response) => {
         chrome.runtime.lastError;
         if (response && response.videos) {
-          detectedVideos = response.videos;
+          if (modeToggle.checked) {
+            detectedVideos = response.videos;
+          } else {
+            response.videos.forEach(v => {
+              if (!detectedVideos.find(existing => existing.url === v.url)) {
+                detectedVideos.push(v);
+              }
+            });
+          }
         }
         
         // YouTube special fallback
@@ -392,12 +436,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
           }
           if (!detectedVideos.find(v => v.type === 'youtube')) {
-            detectedVideos.unshift({
-              url: pageUrl,
-              type: 'youtube',
-              title: ytTitle,
-              thumbnail: null
-            });
+            if (modeToggle.checked) {
+              detectedVideos.unshift({
+                url: pageUrl,
+                type: 'youtube',
+                title: ytTitle,
+                thumbnail: null
+              });
+            }
           }
         }
 
@@ -417,12 +463,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (pageUrl.includes('twitter.com/') || pageUrl.includes('x.com/') || pageUrl.includes('youtube.com/') || pageUrl.includes('reddit.com/')) return;
                 if (detectedVideos.find(v => v.url === streamUrl)) return;
                 
-                detectedVideos.push({
-                  url: streamUrl,
-                  type: 'hls',
-                  title: pageTitle,
-                  thumbnail: pageThumb
-                });
+                if (modeToggle.checked) {
+                  detectedVideos.push({
+                    url: streamUrl,
+                    type: 'hls',
+                    title: pageTitle,
+                    thumbnail: pageThumb
+                  });
+                }
               });
               renderVideoList();
             });
@@ -764,6 +812,22 @@ document.addEventListener('DOMContentLoaded', () => {
     if (video.type === 'youtube') {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (!tabs || tabs.length === 0) return;
+        
+        const activeUrl = tabs[0].url || '';
+        if (!activeUrl.includes('youtube.com/watch') && !activeUrl.includes('youtube.com/shorts') && !activeUrl.includes('youtu.be/')) return;
+        
+        const getVideoId = (u) => {
+          try {
+            const url = new URL(u);
+            if (url.searchParams.has('v')) return url.searchParams.get('v');
+            if (url.pathname.includes('/shorts/')) return url.pathname.split('/shorts/')[1];
+            return url.pathname.split('/').pop();
+          } catch(e) { return null; }
+        };
+        const vid1 = getVideoId(video.url);
+        const vid2 = getVideoId(activeUrl);
+        if (vid1 && vid2 && vid1 !== vid2) return;
+
         chrome.tabs.sendMessage(tabs[0].id, { action: 'get_youtube_formats' }, (response) => {
           chrome.runtime.lastError;
           if (response && response.title) {
