@@ -3,11 +3,24 @@
   "version": "1.1.0",
   "description": "Companion app para o Aster Video Downloader",
   "main": "src/main.js",
+  "bin": "src/main.js",
   "scripts": {
-    "start": "node src/main.js"
+    "start": "node src/main.js",
+    "build": "pkg ."
+  },
+  "pkg": {
+    "targets": [
+      "node18-win-x64",
+      "node18-macos-x64",
+      "node18-linux-x64"
+    ],
+    "outputPath": "dist"
   },
   "dependencies": {
     "m3u8-parser": "^7.1.0"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
   },
   "author": "",
   "license": "ISC"

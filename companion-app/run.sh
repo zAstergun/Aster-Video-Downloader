@@ -1,3 +1,9 @@
 #!/bin/bash
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-node "$DIR/src/main.js"
+
+if [ "$(uname)" == "Darwin" ]; then
+    "$DIR/dist/aster-companion-app-macos"
+else
+    "$DIR/dist/aster-companion-app-linux"
+fi
+

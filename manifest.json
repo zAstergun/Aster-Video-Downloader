@@ -22,16 +22,24 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content-scripts/detector.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content-scripts/detector.js"
+      ],
       "run_at": "document_end",
       "all_frames": true
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["content-scripts/yt-extractor.js"],
-      "matches": ["*://*.youtube.com/*"]
+      "resources": [
+        "content-scripts/yt-extractor.js"
+      ],
+      "matches": [
+        "*://*.youtube.com/*"
+      ]
     }
   ],
   "side_panel": {
@@ -50,5 +58,6 @@
     "32": "assets/icon.png",
     "48": "assets/icon.png",
     "128": "assets/icon.png"
-  }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3FBxdXBxRQUFynXkKWsL7WXSOVCF05MU5g5u/kFKESYgbIIV0S1wD80E7rc+klj0ex3fAFklMaipkQpJrhcyYtedaHyLTBXfpA4lbeWMc8CzDzSM+XROWyqLJOQXj0d6+hrDNtAbToAcILueiONRQI2FgO5j0BgpvQOCf6qKVygVzvdazpr1OvVxWrcJIF9R+bL3BthOZCNU/j5QNux7mjy/ClGGS6oe86M+K33hWYhiiLAbfA2dXXiYIG4qe8QBimvLLJbTPPzcT81csSn1MJTpMtFeZ2cHK769MD6QGoD0uTZpdJvD4Pkq3tcqylrwQToNx9n70q6XMbRoR4tW3QIDAQAB"
 }

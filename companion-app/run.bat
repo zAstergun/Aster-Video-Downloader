@@ -1,2 +1,3 @@
 @echo off
-node "%~dp0src\main.js"
+set "DIR=%~dp0"
+"%DIR%dist\aster-companion-app-win.exe"

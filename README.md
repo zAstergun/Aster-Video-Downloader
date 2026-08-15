@@ -15,11 +15,8 @@ Como a extensão requer comunicação com processos locais do seu computador, a 
 
 1. Baixe e instale a extensão carregando-a "Unpacked" (modo desenvolvedor) no Chrome (página `chrome://extensions/`).
 2. Acesse a pasta `companion-app/`.
-3. Execute o script `install.bat`. Ele registrará o host no Registro do Windows para que o Chrome consiga iniciá-lo.
+3. Execute o script `install.bat` (ou `install.sh` no macOS/Linux). Ele registrará o host no sistema para que o Chrome consiga iniciá-lo.
 
-> **⚠️ IMPORTANTE: Native Messaging ID**
-> O arquivo `companion-app/host-manifest.json` possui um array `allowed_origins` com o ID fixo da extensão publicada (`chrome-extension://<id_fixo>/`).
-> Quando você carrega a extensão no modo de desenvolvimento ("Unpacked"), o Chrome gera um ID dinâmico para ela. **Você precisa copiar esse novo ID e atualizar o arquivo `host-manifest.json` antes de rodar o `install.bat`**, caso contrário, a extensão não conseguirá se comunicar com o aplicativo local.
 
 ## 🌐 Sites Suportados
 
@@ -43,5 +40,5 @@ Graças aos Extratores Híbridos e ao motor `yt-dlp`, o Aster suporta:
 
 ## 🚧 Limitações Conhecidas
 
-- **Plataformas:** Windows conta com instalação automatizada via `install.bat` (inclui download automático do FFmpeg). macOS/Linux têm suporte via `install.sh`, mas requerem Node.js já instalado no sistema.
+- **Plataformas:** Windows conta com instalação automatizada via `install.bat` (inclui download automático do FFmpeg). macOS/Linux têm suporte via `install.sh`. Node.js não é mais necessário graças ao empacotamento com `pkg`.
 - **Resoluções HLS Múltiplas:** Ao detectar um M3U8 variante único, não listamos múltiplas qualidades ainda.
