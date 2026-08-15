@@ -11,8 +11,8 @@ O Aster é uma extensão híbrida (Extensão Chrome + Companion App nativo) proj
 
 O projeto utiliza duas peças essenciais que se comunicam via **Native Messaging**:
 
-1. **A Extensão do Chrome:** Injeta scripts nas páginas para detectar vídeos (HTML5, Twitter, Instagram, etc) e intercepta requisições de rede (streams HLS/m3u8). O painel lateral (Side Panel) é a interface principal do usuário.
-2. **O Companion App (Node.js):** Um executável local leve que utiliza `yt-dlp` e `ffmpeg` sob o capô para baixar e converter vídeos complexos (HLS, YouTube com áudio/vídeo separados, etc). O Companion App roda temporariamente um servidor HTTP local para servir o arquivo pronto à extensão, que por sua vez aciona a janela nativa de "Salvar Como" do Chrome.
+1. **A Extensão do Chrome:** Injeta scripts nas páginas para detectar vídeos (HTML5, Twitter, Instagram, TikTok, etc) e intercepta requisições de rede (streams HLS/m3u8). O painel lateral (Side Panel) é a interface principal do usuário.
+2. **O Companion App:** Um executável local leve que utiliza `yt-dlp` e `ffmpeg` sob o capô para baixar e converter vídeos complexos (HLS, YouTube com áudio/vídeo separados, etc). O Companion App roda temporariamente um servidor HTTP local para servir o arquivo pronto à extensão, que por sua vez aciona a janela nativa de "Salvar Como" do Chrome.
 
 ## ⚙️ Instalação
 
@@ -39,6 +39,7 @@ Graças aos Extratores Híbridos e ao motor `yt-dlp`, o Aster suporta:
 - YouTube (inclusive formatos acima de 1080p, áudio, Shorts)
 - Twitter / X
 - Instagram (Reels e Posts)
+- TikTok
 - Facebook
 - Reddit
 - Qualquer vídeo HTML5 genérico (`<video src="...">`)
