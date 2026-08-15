@@ -11,7 +11,8 @@
     "nativeMessaging",
     "cookies",
     "sidePanel",
-    "storage"
+    "storage",
+    "notifications"
   ],
   "host_permissions": [
     "<all_urls>"

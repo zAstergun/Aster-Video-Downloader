@@ -1,6 +1,56 @@
 // Content Script genérico para detecção de vídeos HTML5
+const DEBUG = false;
+function log(...args) { if (DEBUG) console.log(...args); }
 
 let detectedVideos = new Map(); // Usando Map para evitar URLs duplicadas
+
+function extractSmartTitle(element) {
+  try {
+    // 1. Atributo title ou aria-label do elemento
+    if (element) {
+      const elTitle = element.getAttribute('title') || element.getAttribute('aria-label');
+      if (elTitle && elTitle.trim().length > 2) return elTitle.trim();
+
+      // 2. Post / Artigo ao redor (Twitter, Reddit, Instagram, Facebook)
+      const article = element.closest('article, shreddit-post, .Post, [role="article"]');
+      if (article) {
+        const heading = article.querySelector('h1, h2, h3, [data-testid="tweetText"], p');
+        if (heading && heading.textContent && heading.textContent.trim().length > 2) {
+          let txt = heading.textContent.trim().replace(/\s+/g, ' ');
+          return txt.length > 80 ? txt.substring(0, 80) + '…' : txt;
+        }
+      }
+    }
+
+    // 3. OpenGraph / Twitter Card meta tags
+    const ogTitle = document.querySelector('meta[property="og:title"], meta[name="twitter:title"]');
+    if (ogTitle && ogTitle.content && ogTitle.content.trim().length > 0) {
+      let t = ogTitle.content.trim();
+      if (t.length > 2) return t;
+    }
+
+    // 4. document.title (removendo sufixos comuns de sites)
+    if (document.title && document.title.trim().length > 0) {
+      let cleanTitle = document.title
+        .replace(/\s*-\s*YouTube$/i, '')
+        .replace(/\s*\/\s*X$/i, '')
+        .replace(/\s*\|\s*Twitter$/i, '')
+        .replace(/\s*•\s*Instagram.*$/i, '')
+        .replace(/\s*\|\s*Facebook$/i, '')
+        .replace(/\s*:\s*Reddit$/i, '')
+        .trim();
+      if (cleanTitle.length > 2 && !['youtube', 'twitter', 'instagram', 'facebook', 'reddit'].includes(cleanTitle.toLowerCase())) {
+        return cleanTitle;
+      }
+    }
+
+    // 5. Fallback: Nome do site / hostname (ex: "kiwify.com.br", "vimeo.com")
+    const hostname = window.location.hostname.replace(/^www\./, '');
+    if (hostname) return `Vídeo de ${hostname}`;
+  } catch (e) {}
+
+  return 'Vídeo Web';
+}
 
 function scanForVideos() {
   try {
@@ -36,7 +86,7 @@ function scanForVideos() {
           }
 
           if (tweetUrl) {
-            newVideos.push({ url: tweetUrl, type: 'twitter', element: video });
+            newVideos.push({ url: tweetUrl, type: 'twitter', title: extractSmartTitle(video), element: video });
             return;
           }
         }
@@ -53,10 +103,11 @@ function scanForVideos() {
         if (!instaUrl && (window.location.href.includes('/p/') || window.location.href.includes('/reel/') || window.location.href.includes('/reels/'))) {
            instaUrl = window.location.href.split('?')[0]; // limpa query params
         }
+        const instaTitle = extractSmartTitle(video);
         if (instaUrl) {
-          newVideos.push({ url: instaUrl, type: 'instagram', element: video });
+          newVideos.push({ url: instaUrl, type: 'instagram', title: instaTitle, element: video });
         } else {
-          newVideos.push({ url: window.location.href, type: 'instagram', element: video });
+          newVideos.push({ url: window.location.href, type: 'instagram', title: instaTitle, element: video });
         }
         return; // Impede fallback HTML5 genérico
       }
@@ -73,7 +124,7 @@ function scanForVideos() {
           redditUrl = window.location.href;
         }
         if (redditUrl) {
-          newVideos.push({ url: redditUrl, type: 'reddit', element: video });
+          newVideos.push({ url: redditUrl, type: 'reddit', title: extractSmartTitle(video), element: video });
           return;
         }
       }
@@ -96,10 +147,11 @@ function scanForVideos() {
            fbUrl = window.location.href;
         }
 
+        const fbTitle = extractSmartTitle(video);
         if (fbUrl) {
-           newVideos.push({ url: fbUrl, type: 'facebook', element: video });
+           newVideos.push({ url: fbUrl, type: 'facebook', title: fbTitle, element: video });
         } else {
-           newVideos.push({ url: window.location.href, type: 'facebook', element: video });
+           newVideos.push({ url: window.location.href, type: 'facebook', title: fbTitle, element: video });
         }
         return; // Impede fallback HTML5 genérico
       }
@@ -111,7 +163,7 @@ function scanForVideos() {
         if (isVisible || !video.paused) {
           let ytUrl = window.location.href;
           if (ytUrl.includes('/watch') || ytUrl.includes('/shorts/')) {
-             newVideos.push({ url: ytUrl, type: 'youtube', element: video });
+             newVideos.push({ url: ytUrl, type: 'youtube', title: extractSmartTitle(video), element: video });
           }
         }
         return;
@@ -121,6 +173,7 @@ function scanForVideos() {
         newVideos.push({
           url: video.src,
           type: 'video/mp4',
+          title: extractSmartTitle(video),
           element: video
         });
       }
@@ -132,6 +185,7 @@ function scanForVideos() {
           newVideos.push({
             url: source.src,
             type: source.type || 'video/mp4',
+            title: extractSmartTitle(video),
             element: video
           });
         }
@@ -176,7 +230,7 @@ function scanForVideos() {
       if (!detectedVideos.has(v.url) || (!detectedVideos.get(v.url).thumbnail && thumbnail)) {
         v.thumbnail = thumbnail;
         detectedVideos.set(v.url, v);
-        console.log('[Aster] Novo vídeo detectado:', v.url);
+        log('[Aster] Novo vídeo detectado:', v.url);
 
         try {
           // Envia em tempo real para o Side Panel via background relay
@@ -254,10 +308,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     try { sendResponse({ videos: Array.from(detectedVideos.values()) }); } catch(e) {}
   } else if (request.action === 'get_page_metadata') {
     let thumbnail = null;
-    let title = document.title;
+    const videoEl = document.querySelector('video');
+    let title = extractSmartTitle(videoEl);
     try {
       // Pega o primeiro vídeo válido para thumbnail
-      const videoEl = document.querySelector('video');
       if (videoEl && videoEl.readyState >= 2 && videoEl.videoWidth > 0) {
         const canvas = document.createElement('canvas');
         canvas.width = 160;
@@ -272,6 +326,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.action === 'get_youtube_formats') {
     const formatsMap = new Map();
+    let ytTitle = null;
+    try {
+      const ytTitleEl = document.querySelector('h1.ytd-watch-metadata, #title h1, ytd-watch-metadata #title, #container > h1');
+      if (ytTitleEl && ytTitleEl.textContent && ytTitleEl.textContent.trim()) {
+        ytTitle = ytTitleEl.textContent.trim();
+      }
+    } catch(e) {}
     
     // Tentativa 1: Variável Global Injetada
     let formats = window.lastYoutubeFormats || [];
@@ -285,6 +346,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             const match = s.textContent.match(/ytInitialPlayerResponse\s*=\s*({[\s\S]+?});(?:var|meta|window|document|module|$)/);
             if (match && match[1]) {
               const data = JSON.parse(match[1]);
+              if (data && data.videoDetails && data.videoDetails.title) {
+                ytTitle = data.videoDetails.title;
+              }
               if (data && data.streamingData) {
                 formats = [
                   ...(data.streamingData.formats || []),
@@ -314,7 +378,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
     
     const sortedFormats = Array.from(formatsMap.values()).sort((a, b) => b.height - a.height);
-    try { sendResponse({ formats: sortedFormats }); } catch(e) {}
+    try { sendResponse({ formats: sortedFormats, title: ytTitle }); } catch(e) {}
   }
 });
 

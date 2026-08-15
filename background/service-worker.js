@@ -1,4 +1,7 @@
 // Service Worker base para a extensão Aster (Manifest V3)
+const DEBUG = false;
+function log(...args) { if (DEBUG) console.log(...args); }
+function errLog(...args) { if (DEBUG) console.error(...args); }
 
 // Armazenamento de streams HLS interceptados (Map de tabId -> url)
 const interceptedStreams = new Map();
@@ -10,37 +13,50 @@ const hlsMetadataByTab = new Map();
 const activeDownloads = new Map();
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log("Aster Video Downloader instalado com sucesso.");
+  log("Aster Video Downloader instalado com sucesso.");
   // Abre o Side Panel ao clicar no ícone da extensão
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
 });
 
 // Listener para monitorar o status do download feito pelo Chrome
 chrome.downloads.onChanged.addListener((delta) => {
-  if (activeDownloads.has(delta.id)) {
+  if (!delta.state) return;
+  if (delta.state.current === 'complete' || delta.state.current === 'interrupted') {
     const downloadInfo = activeDownloads.get(delta.id);
-    if (delta.state && (delta.state.current === 'complete' || delta.state.current === 'interrupted')) {
-      // Limpa no companion app
-      downloadInfo.port.postMessage({
-        action: 'cleanup',
-        token: downloadInfo.token,
-        filePath: downloadInfo.filePath
-      });
-      
-      const status = delta.state.current === 'complete' ? 'success' : 'error';
-      chrome.storage.local.get('aster_history', (histData) => {
-         const history = histData.aster_history || [];
-         history.push({
-           url: downloadInfo.url,
-           title: downloadInfo.title || 'Download Concluído',
-           status: status,
-           timestamp: Date.now()
-         });
-         if (history.length > 50) history.shift();
-         chrome.storage.local.set({ aster_history: history });
-      });
-      activeDownloads.delete(delta.id);
-    }
+    if (!downloadInfo) return;
+    activeDownloads.delete(delta.id);
+    
+    downloadInfo.port.postMessage({ action: 'cleanup', token: downloadInfo.token, filePath: downloadInfo.filePath });
+    downloadInfo.port.disconnect();
+    
+    const status = delta.state.current === 'complete' ? 'success' : 'error';
+    const notifTitle = status === 'success' ? 'Download Concluído' : 'Download Interrompido';
+    
+    // Notifica o sidepanel que o download terminou (para esconder o botão cancelar)
+    chrome.runtime.sendMessage({
+      action: 'companion_progress',
+      data: { status: status, url: downloadInfo.url, text: status === 'success' ? 'Concluído!' : 'Interrompido' },
+      url: downloadInfo.url
+    }).catch(() => {});
+    
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: '/assets/icon.png',
+      title: notifTitle,
+      message: downloadInfo.title || 'Vídeo salvo com sucesso.'
+    }).catch(() => {});
+    
+    chrome.storage.local.get('aster_history', (histData) => {
+       const history = histData.aster_history || [];
+       history.push({
+         url: downloadInfo.url,
+         title: downloadInfo.title || 'Sem título',
+         status: status,
+         timestamp: Date.now()
+       });
+       if (history.length > 50) history.shift();
+       chrome.storage.local.set({ aster_history: history });
+    });
   }
 });
 
@@ -55,29 +71,49 @@ chrome.webRequest.onBeforeRequest.addListener(
 
         let streams = interceptedStreams.get(details.tabId) || new Set();
         
-        // Deduplicação inteligente: ignora playlists variantes do mesmo diretório base
-        let isDuplicate = false;
-        const newBase = details.url.substring(0, details.url.lastIndexOf('/') + 1);
-        
-        for (const s of streams) {
-          const sBase = s.substring(0, s.lastIndexOf('/') + 1);
-          // Se o novo m3u8 está na mesma pasta (ou subpasta) de um já capturado, é variante!
-          if (details.url.startsWith(sBase) || s.startsWith(newBase)) {
-            isDuplicate = true;
-            break;
-          }
-        }
+        // Verifica se já temos este URL exato
+        if (streams.has(details.url)) return;
 
-        if (!isDuplicate) {
-          streams.add(details.url);
-          interceptedStreams.set(details.tabId, streams);
+        // Fetch the m3u8 content to determine if it's a master playlist or variant
+        fetch(details.url)
+          .then(r => r.text())
+          .then(text => {
+            const isMaster = text.includes('#EXT-X-STREAM-INF');
+            
+            // Heurística de deduplicação por path base
+            const newBase = details.url.substring(0, details.url.lastIndexOf('/') + 1);
+            let duplicateOf = null;
+            
+            for (const s of streams) {
+              const sBase = s.substring(0, s.lastIndexOf('/') + 1);
+              if (details.url.startsWith(sBase) || s.startsWith(newBase)) {
+                duplicateOf = s;
+                break;
+              }
+            }
+
+            if (!duplicateOf) {
+              // Nova stream de uma origem diferente
+              streams.add(details.url);
+              interceptedStreams.set(details.tabId, streams);
+              notifyHLS(details.tabId, details.url);
+            } else if (isMaster) {
+              // Se a nova é Master, mas a existente era variante (mesmo path), substituimos
+              // Como não sabemos se a existente era master ou não sem guardar estado extra,
+              // damos preferencia para a recém descoberta se ela for Master.
+              streams.delete(duplicateOf);
+              streams.add(details.url);
+              interceptedStreams.set(details.tabId, streams);
+              notifyHLS(details.tabId, details.url);
+            }
+          })
+          .catch(() => {});
           
-          console.log("HLS Interceptado na aba", details.tabId, ":", details.url);
-          
-          chrome.action.setBadgeText({ text: '!', tabId: details.tabId });
-          chrome.action.setBadgeBackgroundColor({ color: '#7b61ff', tabId: details.tabId });
-          
-          chrome.runtime.sendMessage({ action: 'hls_detected', url: details.url }).catch(() => {});
+        function notifyHLS(tabId, url) {
+          log("HLS Interceptado na aba", tabId, ":", url);
+          chrome.action.setBadgeText({ text: '!', tabId: tabId });
+          chrome.action.setBadgeBackgroundColor({ color: '#7b61ff', tabId: tabId });
+          chrome.runtime.sendMessage({ action: 'hls_detected', url: url }).catch(() => {});
         }
       }
     }
@@ -213,6 +249,49 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ status: 'started_companion' });
     return true;
   }
+  
+  if (request.action === 'cancel_companion_download') {
+    if (activeJob && activeJob.url === request.url && activeJob.port) {
+      try {
+        activeJob.cancelled = true; // Flag para o onDisconnect não fazer retry
+        activeJob.port.postMessage({ action: 'cancel' });
+        activeJob.port.disconnect();
+      } catch (e) {}
+      // Libera imediatamente o job para que novos downloads possam começar
+      activeJob = null;
+      processDownloadQueue();
+    } else {
+      const index = downloadQueue.findIndex(j => j.url === request.url);
+      if (index !== -1) {
+        downloadQueue.splice(index, 1);
+      }
+    }
+    // Avisa o sidepanel para restaurar os botões
+    chrome.runtime.sendMessage({
+      action: 'companion_progress',
+      data: { status: 'cancelled', url: request.url },
+      url: request.url
+    }).catch(() => {});
+    sendResponse({ status: 'cancelled' });
+    return true;
+  }
+  
+  if (request.action === 'update_ytdlp') {
+    try {
+      const port = chrome.runtime.connectNative('com.aster.downloader');
+      port.onMessage.addListener((msg) => {
+        chrome.runtime.sendMessage({ action: 'companion_progress', data: msg }).catch(() => {});
+        if (msg.status === 'success' || msg.status === 'error') {
+          port.disconnect();
+        }
+      });
+      port.postMessage({ action: 'update_ytdlp' });
+      sendResponse({ status: 'started' });
+    } catch (err) {
+      sendResponse({ status: 'error' });
+    }
+    return true;
+  }
 });
 
 function startDownload(url) {
@@ -224,8 +303,23 @@ function startDownload(url) {
   });
 }
 
+const downloadQueue = [];
+let activeJob = null;
+
+function processDownloadQueue() {
+  if (activeJob || downloadQueue.length === 0) return;
+  activeJob = downloadQueue.shift();
+  executeCompanionDownload(activeJob);
+}
+
 function startCompanionDownload(action, url, cookies = null, quality = null, title = null) {
-  console.log("Enviando para o companion app:", action, url);
+  downloadQueue.push({ action, url, cookies, quality, title });
+  processDownloadQueue();
+}
+
+function executeCompanionDownload(job) {
+  const { action, url, cookies, quality, title } = job;
+  log("Enviando para o companion app (via fila):", action, url);
   
   chrome.storage.local.get('aster_settings', (data) => {
     const settings = data.aster_settings || {};
@@ -233,9 +327,19 @@ function startCompanionDownload(action, url, cookies = null, quality = null, tit
     
     try {
       const port = chrome.runtime.connectNative('com.aster.downloader');
+      activeJob.port = port;
+      
+      let jobFinished = false;
+      const finishJob = () => {
+        if (!jobFinished) {
+          jobFinished = true;
+          activeJob = null;
+          processDownloadQueue();
+        }
+      };
       
       port.onMessage.addListener((msg) => {
-        console.log("Mensagem do Companion App:", msg);
+        log("Mensagem do Companion App:", msg);
         // Repassa a mensagem para o popup (se estiver aberto)
         chrome.runtime.sendMessage({
           action: 'companion_progress',
@@ -247,7 +351,9 @@ function startCompanionDownload(action, url, cookies = null, quality = null, tit
         
         // FASE 6 / FASE 0: Acionar o Chrome ou Salvar Erro
         if (msg.status === 'ready_to_download') {
-           const suggestedFilename = title ? title.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'Aster_Video';
+           finishJob();
+           const safeTitle = title ? title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9_\-\s]/g, '').trim().replace(/\s+/g, '_') : 'Aster_Video';
+           const suggestedFilename = safeTitle || 'Aster_Video';
            let ext = 'mp4';
            if (msg.filePath && msg.filePath.endsWith('.mp3')) ext = 'mp3';
            
@@ -267,9 +373,20 @@ function startCompanionDownload(action, url, cookies = null, quality = null, tit
                } else {
                    // Fallback se download falhar na hora
                    port.postMessage({ action: 'cleanup', token: msg.token, filePath: msg.filePath });
+                   port.disconnect();
                }
            });
         } else if (msg.status === 'error') {
+          finishJob();
+          port.disconnect();
+          
+          chrome.notifications.create({
+            type: 'basic',
+            iconUrl: '/assets/icon.png',
+            title: 'Erro no Download',
+            message: (title || 'Falha ao processar') + '\n' + (msg.error || '')
+          }).catch(() => {});
+          
           chrome.storage.local.get('aster_history', (histData) => {
              const history = histData.aster_history || [];
              history.push({
@@ -286,15 +403,49 @@ function startCompanionDownload(action, url, cookies = null, quality = null, tit
       });
       
       port.onDisconnect.addListener(() => {
-        console.log("Desconectado do Companion App. Erro (se houver):", chrome.runtime.lastError);
+        if (jobFinished) return;
+        
+        // Se foi cancelado manualmente, não faz retry
+        if (job.cancelled) {
+          finishJob();
+          return;
+        }
+        
+        log("Desconectado do Companion App. Erro (se houver):", chrome.runtime.lastError);
         if (chrome.runtime.lastError) {
            console.warn("Companion app não encontrado. Por favor, instale o Companion App usando o install.bat.");
+           chrome.runtime.sendMessage({ action: 'companion_missing' }).catch(() => {});
+           finishJob();
+        } else {
+           if (!job.retries) job.retries = 0;
+           if (job.retries < 3) {
+             job.retries++;
+             log(`Reconectando... tentativa ${job.retries}/3`);
+             setTimeout(() => {
+               jobFinished = true;
+               activeJob = null;
+               downloadQueue.unshift(job);
+               processDownloadQueue();
+             }, 2000);
+           } else {
+             finishJob();
+             chrome.storage.local.get('aster_history', (histData) => {
+               const history = histData.aster_history || [];
+               history.push({ url: url, title: title || 'Download Falhou (Desconexão)', status: 'error', timestamp: Date.now() });
+               if (history.length > 50) history.shift();
+               chrome.storage.local.set({ aster_history: history });
+             });
+           }
         }
       });
       
       port.postMessage({ action: action, url: url, cookies: cookies, quality: quality, downloadFolder: downloadFolder });
     } catch (err) {
-      console.error("Erro ao conectar ao companion app:", err);
+      errLog("Erro ao conectar ao companion app:", err);
+      if (activeJob) {
+        activeJob = null;
+        processDownloadQueue();
+      }
     }
   });
 }

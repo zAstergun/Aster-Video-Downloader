@@ -56,38 +56,213 @@ document.addEventListener('DOMContentLoaded', () => {
   backFromHistory.addEventListener('click', () => showPanel(panelVideos));
   backFromSettings.addEventListener('click', () => showPanel(panelVideos));
 
+  function formatFriendlyProgress(rawText) {
+    if (!rawText) return 'Processando...';
+    const text = rawText.trim();
+
+    // 1. Porcentagem de Download (yt-dlp ou HLS)
+    const percentMatch = text.match(/(\d+(?:\.\d+)?)%/);
+    if (percentMatch) {
+      const percent = Math.round(parseFloat(percentMatch[1]));
+      const speedMatch = text.match(/at\s+([\d\.]+\s*[KMGT]?i?B\/s)/i);
+      if (speedMatch) {
+        return `Baixando: ${percent}% (${speedMatch[1].replace('iB/s', 'B/s')})`;
+      }
+      return `Baixando: ${percent}%`;
+    }
+
+    // 2. Extração de informações / Burlar proteção / Início
+    if (text.includes('[youtube]') || text.includes('[twitter]') || text.includes('[instagram]') || 
+        text.includes('[reddit]') || text.includes('[facebook]') || text.includes('Extracting') || 
+        text.includes('Downloading webpage') || text.includes('Solving JS') || text.includes('burlar') ||
+        text.includes('cookies') || text.includes('API JSON') || text.includes('player API') || text.includes('Preparando')) {
+      return 'Preparando vídeo...';
+    }
+
+    // 3. Pós-processamento e Mesclagem
+    if (text.includes('[Merger]') || text.includes('Merging formats')) {
+      return 'Unindo áudio e vídeo...';
+    }
+    if (text.includes('[ExtractAudio]') || text.includes('audio-format') || text.includes('extract-audio')) {
+      return 'Convertendo áudio...';
+    }
+    if (text.includes('[EmbedSubtitle]') || text.includes('Writing video subtitles') || text.includes('subtitles') || text.includes('--write-subs')) {
+      return 'Embutindo legendas...';
+    }
+    if (text.includes('Deleting original file') || text.includes('Fixup') || text.includes('pass -k to keep') || text.includes('Finalizando')) {
+      return 'Finalizando arquivo...';
+    }
+
+    // 4. HLS / Streaming
+    if (text.includes('Analisando playlist') || text.includes('Obtendo segmentos') || text.includes('stream de vídeo') || text.includes('Analisando stream')) {
+      return 'Analisando stream...';
+    }
+
+    // 5. Conversão FFmpeg
+    if (text.includes('Tempo renderizado') || text.includes('Convertendo...')) {
+      const timeMatch = text.match(/(\d{2}:\d{2}:\d{2})/);
+      return timeMatch ? `Convertendo: ${timeMatch[1]}` : 'Convertendo vídeo...';
+    }
+    if (text.includes('conversão local') || text.includes('Iniciando conversão')) {
+      return 'Iniciando conversão...';
+    }
+
+    // 6. Mensagens padrão conhecidas
+    if (text.includes('Iniciando yt-dlp') || text.includes('Destination:') || text.includes('Iniciando download')) {
+      return 'Iniciando download...';
+    }
+
+    // Se for uma mensagem curta e amigável (sem colchetes técnicos de log), mantém
+    if (!text.startsWith('[') && text.length <= 35) {
+      return text;
+    }
+
+    return 'Processando vídeo...';
+  }
+
   // =========================================
   // Receive Videos in Real-Time
   // =========================================
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // new_video_detected agora é tratado dentro de chrome.tabs.query para filtrar por aba
 
+    if (request.action === 'companion_missing') {
+      statusBadge.textContent = 'Companion App não detectado';
+      statusBadge.style.color = '#ef4444';
+      statusBadge.style.background = 'rgba(239, 68, 68, 0.15)';
+      statusBadge.style.borderColor = 'rgba(239, 68, 68, 0.25)';
+      
+      let banner = document.getElementById('companion-missing-banner');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'companion-missing-banner';
+        banner.style.padding = '10px';
+        banner.style.background = 'rgba(239, 68, 68, 0.1)';
+        banner.style.color = '#ef4444';
+        banner.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+        banner.style.borderRadius = '8px';
+        banner.style.marginBottom = '15px';
+        banner.style.fontSize = '12px';
+        banner.style.textAlign = 'center';
+        banner.innerHTML = 'O <strong>Companion App</strong> não está instalado ou rodando. Para baixar, execute o arquivo <code>install.bat</code>.';
+        videoList.parentNode.insertBefore(banner, videoList);
+      }
+      return;
+    }
+
     if (request.action === 'companion_progress') {
       const msg = request.data;
       if (msg.status === 'info' || msg.status === 'progress') {
-        statusBadge.textContent = msg.text;
+        const friendlyText = formatFriendlyProgress(msg.text);
+        statusBadge.textContent = friendlyText;
+        statusBadge.title = msg.text || friendlyText;
+        
+        const match = msg.text.match(/(\d+(?:\.\d+)?)%/);
+        if (match && request.url) {
+           const percent = parseFloat(match[1]);
+           const cards = document.querySelectorAll('.video-card');
+           cards.forEach(card => {
+             if (card.dataset.url === request.url) {
+               let pBar = card.querySelector('.progress-bar');
+               if (!pBar) {
+                 const pContainer = document.createElement('div');
+                 pContainer.className = 'progress-container';
+                 pContainer.style.width = '100%';
+                 pContainer.style.height = '4px';
+                 pContainer.style.background = 'rgba(255,255,255,0.1)';
+                 pContainer.style.marginTop = '10px';
+                 pContainer.style.borderRadius = '2px';
+                 pContainer.style.overflow = 'hidden';
+                 
+                 pBar = document.createElement('div');
+                 pBar.className = 'progress-bar';
+                 pBar.style.height = '100%';
+                 pBar.style.background = '#10b981';
+                 pBar.style.width = '0%';
+                 pBar.style.transition = 'width 0.2s';
+                 
+                 pContainer.appendChild(pBar);
+                 card.querySelector('.video-card-body').appendChild(pContainer);
+               }
+               pBar.style.width = percent + '%';
+             }
+           });
+        }
       } else if (msg.status === 'success') {
         statusBadge.textContent = 'Concluído!';
+        statusBadge.title = 'Download concluído com sucesso';
         statusBadge.style.color = '#10b981';
         statusBadge.style.background = 'rgba(16, 185, 129, 0.15)';
         statusBadge.style.borderColor = 'rgba(16, 185, 129, 0.25)';
         setTimeout(() => {
           statusBadge.textContent = 'Aguardando vídeos...';
+          statusBadge.title = '';
           statusBadge.style.color = '';
           statusBadge.style.background = '';
           statusBadge.style.borderColor = '';
         }, 5000);
+        
+        const cards = document.querySelectorAll('.video-card');
+        cards.forEach(card => {
+          if (card.dataset.url === request.url) {
+            const pContainer = card.querySelector('.progress-container');
+            if (pContainer) pContainer.remove();
+          }
+        });
+        
+        // Notify UI that a download finished
+        document.dispatchEvent(new CustomEvent('aster_download_finished', { detail: { url: request.url } }));
       } else if (msg.status === 'error') {
-        statusBadge.textContent = 'Erro: ' + (msg.error || '');
+        let errorMsg = msg.error || 'Falha ao processar';
+        if (errorMsg.includes('yt-dlp falhou') || errorMsg.includes('bin')) {
+          errorMsg = 'Erro no conversor local';
+        } else if (errorMsg.length > 30) {
+          errorMsg = errorMsg.substring(0, 30) + '…';
+        }
+        statusBadge.textContent = 'Erro: ' + errorMsg;
+        statusBadge.title = msg.error || '';
         statusBadge.style.color = '#ef4444';
         statusBadge.style.background = 'rgba(239, 68, 68, 0.15)';
         statusBadge.style.borderColor = 'rgba(239, 68, 68, 0.25)';
         setTimeout(() => {
           statusBadge.textContent = 'Aguardando vídeos...';
+          statusBadge.title = '';
           statusBadge.style.color = '';
           statusBadge.style.background = '';
           statusBadge.style.borderColor = '';
         }, 5000);
+        
+        const cards = document.querySelectorAll('.video-card');
+        cards.forEach(card => {
+          if (card.dataset.url === request.url) {
+            const pBar = card.querySelector('.progress-bar');
+            if (pBar) pBar.style.background = '#ef4444';
+          }
+        });
+        
+        // Notify UI that a download errored
+        document.dispatchEvent(new CustomEvent('aster_download_finished', { detail: { url: request.url } }));
+      } else if (msg.status === 'cancelled') {
+        statusBadge.textContent = 'Download cancelado';
+        statusBadge.title = '';
+        setTimeout(() => {
+          statusBadge.textContent = 'Aguardando vídeos...';
+          statusBadge.style.color = '';
+          statusBadge.style.background = '';
+          statusBadge.style.borderColor = '';
+        }, 3000);
+        
+        // Remove progress bar
+        const cards = document.querySelectorAll('.video-card');
+        cards.forEach(card => {
+          if (card.dataset.url === request.url) {
+            const pContainer = card.querySelector('.progress-container');
+            if (pContainer) pContainer.remove();
+          }
+        });
+        
+        // Restaura os botões via evento
+        document.dispatchEvent(new CustomEvent('aster_download_finished', { detail: { url: request.url } }));
       }
     }
   });
@@ -125,11 +300,20 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // YouTube special fallback
       if (pageUrl.includes('youtube.com/watch') || pageUrl.includes('youtube.com/shorts') || pageUrl.includes('youtu.be/')) {
+        let ytTitle = activeTab.title ? activeTab.title.replace(/\s*-\s*YouTube$/i, '').trim() : '';
+        if (!ytTitle || ytTitle.toLowerCase() === 'youtube') {
+          try {
+            const host = new URL(pageUrl).hostname.replace(/^www\./, '');
+            ytTitle = host ? `Vídeo de ${host}` : 'Vídeo do YouTube';
+          } catch(e) {
+            ytTitle = 'Vídeo do YouTube';
+          }
+        }
         if (!detectedVideos.find(v => v.type === 'youtube')) {
           detectedVideos.unshift({
             url: pageUrl,
             type: 'youtube',
-            title: 'Vídeo do YouTube',
+            title: ytTitle,
             thumbnail: null
           });
         }
@@ -141,7 +325,10 @@ document.addEventListener('DOMContentLoaded', () => {
           chrome.tabs.sendMessage(activeTab.id, { action: 'get_page_metadata' }, (metaResponse) => {
             chrome.runtime.lastError; // limpa o erro se o script não estiver injetado
             
-            const pageTitle = (metaResponse && metaResponse.title) ? metaResponse.title.trim() : (bgResponse.title || 'Stream HLS (.m3u8)');
+            let siteFallback = '';
+            try { siteFallback = new URL(pageUrl).hostname.replace(/^www\./, ''); } catch(e){}
+            const defaultHlsTitle = siteFallback ? `Vídeo de ${siteFallback}` : 'Stream HLS (.m3u8)';
+            const pageTitle = (metaResponse && metaResponse.title) ? metaResponse.title.trim() : (bgResponse.title || defaultHlsTitle);
             const pageThumb = (metaResponse && metaResponse.thumbnail) ? metaResponse.thumbnail : (bgResponse.thumbnail || null);
 
             bgResponse.streams.forEach((streamUrl) => {
@@ -164,19 +351,16 @@ document.addEventListener('DOMContentLoaded', () => {
           chrome.runtime.lastError;
           if (csResponse && csResponse.videos) {
             const vipTypes = ['twitter', 'instagram', 'facebook', 'reddit'];
+            let siteFallback = '';
+            try { siteFallback = new URL(pageUrl).hostname.replace(/^www\./, ''); } catch(e){}
+            const defaultTitle = siteFallback ? `Vídeo de ${siteFallback}` : 'Vídeo Web';
             csResponse.videos.forEach(v => {
               if (detectedVideos.find(existing => existing.url === v.url)) return;
               const isVIP = vipTypes.includes(v.type);
-              const titles = {
-                'twitter': 'Vídeo do Twitter / X',
-                'instagram': 'Vídeo do Instagram',
-                'facebook': 'Vídeo do Facebook',
-                'reddit': 'Vídeo do Reddit'
-              };
               detectedVideos.push({
                 url: v.url,
                 type: isVIP ? v.type : 'html5',
-                title: isVIP ? titles[v.type] : 'HTML5 Video',
+                title: v.title || defaultTitle,
                 thumbnail: v.thumbnail || null
               });
             });
@@ -207,6 +391,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const card = document.createElement('div');
       card.className = 'video-card';
       card.style.position = 'relative';
+      card.dataset.url = video.url;
 
       // Thumbnail
       const thumbDiv = document.createElement('div');
@@ -298,18 +483,70 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       actions.appendChild(qualitySelect);
 
+      const btnRow = document.createElement('div');
+      btnRow.style.display = 'flex';
+      btnRow.style.gap = '6px';
+      btnRow.style.width = '100%';
+
+      const audioBtn = document.createElement('button');
+      audioBtn.className = 'download-btn';
+      audioBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>';
+      audioBtn.title = 'Baixar Áudio';
+      audioBtn.style.background = '#8b5cf6';
+      audioBtn.style.padding = '5px 8px';
+      if (isVIP) {
+        audioBtn.disabled = true;
+        audioBtn.style.opacity = '0.4';
+      }
+      btnRow.appendChild(audioBtn);
+
       const dlBtn = document.createElement('button');
       dlBtn.className = 'download-btn';
       dlBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Baixar';
+      dlBtn.style.flex = '1';
       if (isVIP) {
         dlBtn.disabled = true;
         dlBtn.style.opacity = '0.4';
       }
+      btnRow.appendChild(dlBtn);
+      
+      actions.appendChild(btnRow);
+      
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'download-btn';
+      cancelBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg> Cancelar';
+      cancelBtn.style.display = 'none';
+      cancelBtn.style.background = '#ef4444';
+      cancelBtn.style.width = '100%';
+      
+      audioBtn.addEventListener('click', () => {
+        downloadVideo(video, 'audio');
+        btnRow.style.display = 'none';
+        cancelBtn.style.display = 'flex';
+      });
+
       dlBtn.addEventListener('click', () => {
         const quality = qualitySelect.value;
         downloadVideo(video, quality);
+        btnRow.style.display = 'none';
+        cancelBtn.style.display = 'flex';
       });
-      actions.appendChild(dlBtn);
+      
+      cancelBtn.addEventListener('click', () => {
+        chrome.runtime.sendMessage({ action: 'cancel_companion_download', url: video.url });
+        statusBadge.textContent = 'Download cancelado';
+        cancelBtn.style.display = 'none';
+        btnRow.style.display = 'flex';
+      });
+      actions.appendChild(cancelBtn);
+      
+      document.addEventListener('aster_download_finished', (e) => {
+        if (e.detail.url === video.url) {
+          cancelBtn.style.display = 'none';
+          btnRow.style.display = 'flex';
+        }
+      });
+      
       body.appendChild(actions);
       card.appendChild(body);
 
@@ -371,6 +608,17 @@ document.addEventListener('DOMContentLoaded', () => {
         cookies: cookies.length > 0 ? cookies : null
       }, (response) => {
         chrome.runtime.lastError;
+        if (response && response.title) {
+          video.title = response.title;
+          const card = qualitySelect.closest('.video-card');
+          if (card) {
+            const titleEl = card.querySelector('.video-card-title');
+            if (titleEl) {
+              titleEl.textContent = response.title;
+              titleEl.title = response.title;
+            }
+          }
+        }
         if (!response || !response.formats) {
           qualitySelect.innerHTML = '<option value="best">Melhor qualidade disponível</option>';
           ['1080', '720', '480', '360'].forEach(h => {
@@ -407,11 +655,11 @@ document.addEventListener('DOMContentLoaded', () => {
         // Enable download button
         const card = qualitySelect.closest('.video-card');
         if (card) {
-          const dlBtn = card.querySelector('.download-btn');
-          if (dlBtn) {
-            dlBtn.disabled = false;
-            dlBtn.style.opacity = '1';
-          }
+          const dlBtns = card.querySelectorAll('.download-btn');
+          dlBtns.forEach(btn => {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+          });
         }
       });
     });
@@ -422,6 +670,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!tabs || tabs.length === 0) return;
         chrome.tabs.sendMessage(tabs[0].id, { action: 'get_youtube_formats' }, (response) => {
           chrome.runtime.lastError;
+          if (response && response.title) {
+            video.title = response.title;
+            const card = qualitySelect.closest('.video-card');
+            if (card) {
+              const titleEl = card.querySelector('.video-card-title');
+              if (titleEl) {
+                titleEl.textContent = response.title;
+                titleEl.title = response.title;
+              }
+            }
+          }
           if (response && response.formats && response.formats.length > 0) {
             qualitySelect.innerHTML = '<option value="best">Melhor qualidade disponível</option>';
             response.formats.forEach(f => {
@@ -432,8 +691,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const card = qualitySelect.closest('.video-card');
             if (card) {
-              const dlBtn = card.querySelector('.download-btn');
-              if (dlBtn) { dlBtn.disabled = false; dlBtn.style.opacity = '1'; }
+              const dlBtns = card.querySelectorAll('.download-btn');
+              dlBtns.forEach(btn => { btn.disabled = false; btn.style.opacity = '1'; });
               const meta = card.querySelector('.video-card-meta');
               const existing = meta.querySelector('.badge-quality');
               if (!existing) {
@@ -530,10 +789,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const el = document.createElement('div');
         el.className = 'history-item';
         el.innerHTML = `
-          <div class="history-item-title">${item.title || item.url}</div>
-          <div class="history-item-meta">
-            <span>${new Date(item.timestamp).toLocaleString()}</span>
-            <span class="${item.status === 'success' ? 'history-status-success' : 'history-status-error'}">${item.status === 'success' ? '✓ Concluído' : '✗ Falha'}</span>
+          <div class="history-item-title" title="${item.title || item.url}">${item.title || item.url}</div>
+          <div class="history-item-meta" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <div style="display: flex; gap: 8px;">
+              <span>${new Date(item.timestamp).toLocaleString()}</span>
+              <span class="${item.status === 'success' ? 'history-status-success' : 'history-status-error'}">${item.status === 'success' ? '✓ Concluído' : '✗ Falha'}</span>
+            </div>
+            ${item.url ? `<a href="${item.url}" target="_blank" title="Abrir link original" style="color: var(--accent); background: rgba(123, 97, 255, 0.15); padding: 4px 6px; border-radius: 4px; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: background 0.2s;"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> Link</a>` : ''}
           </div>
         `;
         historyList.appendChild(el);
@@ -568,5 +830,13 @@ document.addEventListener('DOMContentLoaded', () => {
       }, 2000);
     });
   });
+
+  const updateYtdlpBtn = document.getElementById('update-ytdlp-btn');
+  if (updateYtdlpBtn) {
+    updateYtdlpBtn.addEventListener('click', () => {
+      chrome.runtime.sendMessage({ action: 'update_ytdlp' });
+      statusBadge.textContent = 'Iniciando atualização...';
+    });
+  }
 
 });

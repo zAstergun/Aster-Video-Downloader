@@ -12,15 +12,71 @@ function sanitizeFilename(name) {
 
 const { spawn } = require('child_process');
 
+let currentDownload = null;
+
+function cleanupTempFiles(files, prefix) {
+  if (files && Array.isArray(files)) {
+    files.forEach(f => {
+      if (f && fs.existsSync(f)) {
+        try { fs.unlinkSync(f); } catch (e) {}
+      }
+    });
+  }
+  if (prefix) {
+    try {
+      const tmpDir = os.tmpdir();
+      const matched = fs.readdirSync(tmpDir).filter(name => name.startsWith(prefix));
+      matched.forEach(name => {
+        try { fs.unlinkSync(path.join(tmpDir, name)); } catch (e) {}
+      });
+    } catch (e) {}
+  }
+}
+
+function cancelCurrentDownload() {
+  if (!currentDownload) return;
+  const { child, tempFiles, tempPrefix, fileStream, abortController } = currentDownload;
+  
+  if (abortController) {
+    try { abortController.abort(); } catch (e) {}
+  }
+  
+  if (fileStream) {
+    try { fileStream.destroy(); } catch (e) {}
+  }
+  
+  if (child) {
+    try {
+      if (process.platform === 'win32') {
+        const { execSync } = require('child_process');
+        execSync(`taskkill /pid ${child.pid} /T /F`, { stdio: 'ignore' });
+      } else {
+        child.kill('SIGKILL');
+      }
+    } catch (e) {
+      try { child.kill('SIGKILL'); } catch (err) {}
+    }
+  }
+  
+  setTimeout(() => {
+    cleanupTempFiles(tempFiles, tempPrefix);
+  }, 200);
+  
+  cleanupTempFiles(tempFiles, tempPrefix);
+  currentDownload = null;
+}
+
 function downloadYoutube(url, onProgress, cookies = null, quality = null, downloadFolder = null) {
   return new Promise((resolve, reject) => {
     // Procura o yt-dlp na pasta bin
     const ytDlpPath = path.join(__dirname, '..', 'bin', 'yt-dlp.exe');
     const executable = fs.existsSync(ytDlpPath) ? ytDlpPath : 'yt-dlp';
 
-    // FASE 0: Arquivo salvo na pasta temporária do sistema
+    const timestamp = Date.now();
+    const tempPrefix = `aster_temp_${timestamp}`;
     const ext = quality === 'audio' ? 'mp3' : 'mp4';
-    const outputPath = path.join(os.tmpdir(), `aster_temp_${Date.now()}.${ext}`);
+    const outputPath = path.join(os.tmpdir(), `${tempPrefix}.${ext}`);
+    const tempFiles = [outputPath];
     
     let formatArg = 'bestvideo+bestaudio/best';
     if (quality === 'audio') {
@@ -41,12 +97,13 @@ function downloadYoutube(url, onProgress, cookies = null, quality = null, downlo
       args.push('--extract-audio', '--audio-format', 'mp3');
     } else {
       args.push('--merge-output-format', 'mp4');
+      args.push('--write-subs', '--embed-subs', '--sub-langs', 'all');
     }
 
     // Cria o arquivo de cookies se foram enviados do Chrome
     let cookiesFile = null;
     if (cookies && cookies.length > 0) {
-      onProgress("Processando cookies do navegador para autenticação...");
+      onProgress("Preparando autenticação...");
       let cookieText = "# Netscape HTTP Cookie File\n";
       cookies.forEach(c => {
         const includeSubdomains = c.domain.startsWith('.') ? 'TRUE' : 'FALSE';
@@ -54,16 +111,18 @@ function downloadYoutube(url, onProgress, cookies = null, quality = null, downlo
         const expiration = c.expirationDate ? Math.floor(c.expirationDate) : 0;
         cookieText += `${c.domain}\t${includeSubdomains}\t${c.path}\t${secure}\t${expiration}\t${c.name}\t${c.value}\n`;
       });
-      cookiesFile = path.join(os.tmpdir(), `aster_cookies_${Date.now()}.txt`);
+      cookiesFile = path.join(os.tmpdir(), `aster_cookies_${timestamp}.txt`);
       fs.writeFileSync(cookiesFile, cookieText);
+      tempFiles.push(cookiesFile);
       args.push('--cookies', cookiesFile);
     }
     
     args.push(url);
 
-    onProgress("Iniciando yt-dlp para burlar o bloqueio...");
+    onProgress("Preparando vídeo...");
     
     const child = spawn(executable, args);
+    currentDownload = { type: 'ytdl', child, tempFiles, tempPrefix };
 
     child.stdout.on('data', (data) => {
       onProgress(data.toString().trim());
@@ -74,17 +133,27 @@ function downloadYoutube(url, onProgress, cookies = null, quality = null, downlo
     });
 
     child.on('close', (code) => {
-      if (cookiesFile && fs.existsSync(cookiesFile)) fs.unlinkSync(cookiesFile);
+      if (cookiesFile && fs.existsSync(cookiesFile)) {
+        try { fs.unlinkSync(cookiesFile); } catch (e) {}
+      }
+      
+      if (currentDownload && currentDownload.child === child) {
+        currentDownload = null;
+      }
       
       if (code === 0) {
         resolve(outputPath);
       } else {
+        cleanupTempFiles(tempFiles, tempPrefix);
         reject(new Error(`yt-dlp falhou com código ${code}. O arquivo yt-dlp.exe está na pasta bin?`));
       }
     });
     
     child.on('error', (err) => {
-      if (cookiesFile && fs.existsSync(cookiesFile)) fs.unlinkSync(cookiesFile);
+      cleanupTempFiles(tempFiles, tempPrefix);
+      if (currentDownload && currentDownload.child === child) {
+        currentDownload = null;
+      }
       reject(new Error(`Falha ao iniciar yt-dlp: ${err.message}`));
     });
   });
@@ -152,8 +221,18 @@ function downloadHLSSegment(segmentUrl, writeStream, maxRetries = 3, cookies = n
 }
 
 async function downloadHLS(url, onProgress, quality = null, cookies = null) {
+  const timestamp = Date.now();
+  const tempPrefix = `Aster_HLS_${timestamp}`;
+  const outputPath = path.join(os.tmpdir(), `${tempPrefix}.mp4`);
+  const tempFiles = [outputPath];
+  
+  let isCancelled = false;
+  const abortController = {
+    abort: () => { isCancelled = true; }
+  };
+
   try {
-    onProgress("Analisando playlist HLS principal...");
+    onProgress("Analisando stream de vídeo...");
     const masterRes = await fetchHLS(url, cookies);
     const parser = new m3u8Parser.Parser();
     parser.push(masterRes.body);
@@ -193,7 +272,7 @@ async function downloadHLS(url, onProgress, quality = null, cookies = null) {
       // Resolve a URI relativa para absoluta
       targetUrl = new URL(bestPlaylistUri, masterRes.finalUrl).href;
       
-      onProgress("Melhor qualidade HLS selecionada. Obtendo segmentos...");
+      onProgress("Preparando stream de vídeo...");
       const variantRes = await fetchHLS(targetUrl, cookies);
       const variantParser = new m3u8Parser.Parser();
       variantParser.push(variantRes.body);
@@ -208,22 +287,32 @@ async function downloadHLS(url, onProgress, quality = null, cookies = null) {
     const segments = parser.manifest.segments;
     const totalSegments = segments.length;
     
-    const outputPath = path.join(os.tmpdir(), `Aster_HLS_${Date.now()}.mp4`);
     const fileStream = fs.createWriteStream(outputPath);
+    currentDownload = { type: 'hls', fileStream, tempFiles, tempPrefix, abortController };
 
     for (let i = 0; i < segments.length; i++) {
+      if (isCancelled) {
+        throw new Error("Download HLS cancelado pelo usuário.");
+      }
       let segmentUri = segments[i].uri;
       const segmentAbsUrl = new URL(segmentUri, targetUrl).href;
       
       const percent = (((i + 1) / totalSegments) * 100).toFixed(1);
-      onProgress(`Baixando HLS: ${percent}% (Segmento ${i + 1}/${totalSegments})`);
+      onProgress(`Baixando: ${percent}%`);
       
       await downloadHLSSegment(segmentAbsUrl, fileStream, 3, cookies);
     }
 
     fileStream.end();
+    if (currentDownload && currentDownload.fileStream === fileStream) {
+      currentDownload = null;
+    }
     return outputPath;
   } catch (err) {
+    cleanupTempFiles(tempFiles, tempPrefix);
+    if (currentDownload && currentDownload.tempFiles === tempFiles) {
+      currentDownload = null;
+    }
     throw new Error(`Falha no HLS: ${err.message}`);
   }
 }
@@ -279,13 +368,13 @@ function getYouTubeFormats(url, cookies = null) {
           }
         });
         const sortedFormats = Array.from(formatsMap.values()).sort((a, b) => b.height - a.height);
-        resolve(sortedFormats);
+        resolve({ formats: sortedFormats, title: info.title || null });
       } catch (err) {
-        resolve([]);
+        resolve({ formats: [], title: null });
       }
     });
     
-    child.on('error', () => resolve([]));
+    child.on('error', () => resolve({ formats: [], title: null }));
   });
 }
 
@@ -324,22 +413,26 @@ function downloadHTML5Converted(url, onProgress, quality, downloadFolder = null)
     const executable = fs.existsSync(ffmpegPath) ? ffmpegPath : 'ffmpeg';
     
     const baseFolder = os.tmpdir();
-    let outputPath = '';
+    const timestamp = Date.now();
+    const tempPrefix = `Aster_HTML5_${timestamp}`;
+    const ext = quality === 'audio' ? 'mp3' : 'mp4';
+    const outputPath = path.join(baseFolder, `${tempPrefix}.${ext}`);
+    const tempFiles = [outputPath];
+    
     const args = ['-y', '-i', url];
     
     if (quality === 'audio') {
-      outputPath = path.join(baseFolder, `Aster_HTML5_${Date.now()}.mp3`);
       args.push('-vn', '-c:a', 'libmp3lame', '-q:a', '2');
     } else {
-      outputPath = path.join(baseFolder, `Aster_HTML5_${Date.now()}.mp4`);
       const height = parseInt(quality.replace('p', ''), 10) || 720;
       args.push('-vf', `scale=-2:${height}`, '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-c:a', 'aac');
     }
     
     args.push(outputPath);
-    onProgress(`Iniciando conversão local com FFmpeg (${quality})... isso pode levar alguns minutos.`);
+    onProgress(`Convertendo vídeo (${quality})...`);
     
     const child = spawn(executable, args);
+    currentDownload = { type: 'ffmpeg', child, tempFiles, tempPrefix };
 
     child.stderr.on('data', (data) => {
       const msg = data.toString().trim();
@@ -352,14 +445,22 @@ function downloadHTML5Converted(url, onProgress, quality, downloadFolder = null)
     });
 
     child.on('close', (code) => {
+      if (currentDownload && currentDownload.child === child) {
+        currentDownload = null;
+      }
       if (code === 0) {
         resolve(outputPath);
       } else {
+        cleanupTempFiles(tempFiles, tempPrefix);
         reject(new Error(`FFmpeg falhou com código ${code}. Verifique a pasta bin.`));
       }
     });
     
     child.on('error', (err) => {
+      cleanupTempFiles(tempFiles, tempPrefix);
+      if (currentDownload && currentDownload.child === child) {
+        currentDownload = null;
+      }
       reject(new Error(`Falha ao iniciar FFmpeg: ${err.message}`));
     });
   });
@@ -370,5 +471,6 @@ module.exports = {
   downloadHLS,
   getYouTubeFormats,
   getHLSFormats,
-  downloadHTML5Converted
+  downloadHTML5Converted,
+  cancelCurrentDownload
 };
