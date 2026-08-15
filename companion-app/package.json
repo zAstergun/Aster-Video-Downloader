@@ -6,7 +6,8 @@
   "bin": "src/main.js",
   "scripts": {
     "start": "node src/main.js",
-    "build": "pkg ."
+    "build": "node scripts/build-with-icon.js",
+    "build:pkg": "pkg ."
   },
   "pkg": {
     "targets": [
@@ -20,7 +21,10 @@
     "m3u8-parser": "^7.1.0"
   },
   "devDependencies": {
-    "pkg": "^5.8.1"
+    "pkg": "^5.8.1",
+    "png-to-ico": "^3.0.2",
+    "rcedit": "^5.0.2",
+    "resedit": "^3.0.2"
   },
   "author": "",
   "license": "ISC"
