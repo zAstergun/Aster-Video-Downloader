@@ -1,5 +1,6 @@
 const fs = require('fs');
 const downloader = require('./downloader');
+const localServer = require('./local-server');
 
 // Lógica de Native Messaging usando stdio
 process.stdin.on('readable', () => {
@@ -48,7 +49,10 @@ function handleMessage(msg) {
     downloader.downloadYoutube(msg.url, (progressMsg) => {
       sendMessage({ status: 'progress', text: progressMsg });
     }, msg.cookies, msg.quality, msg.downloadFolder).then((filePath) => {
-      sendMessage({ status: 'success', filePath: filePath });
+      return localServer.registerFile(filePath).then(localUrl => {
+        const token = new URL(localUrl).searchParams.get('token');
+        sendMessage({ status: 'ready_to_download', url: localUrl, token: token, filePath: filePath });
+      });
     }).catch(err => {
       sendMessage({ status: 'error', error: err.message });
     });
@@ -56,8 +60,11 @@ function handleMessage(msg) {
     sendMessage({ status: 'info', text: 'Iniciando download HLS: ' + msg.url });
     downloader.downloadHLS(msg.url, (progressMsg) => {
       sendMessage({ status: 'progress', text: progressMsg });
-    }, msg.quality, msg.downloadFolder).then((filePath) => {
-      sendMessage({ status: 'success', filePath: filePath });
+    }, msg.quality, msg.cookies).then((filePath) => {
+      return localServer.registerFile(filePath).then(localUrl => {
+        const token = new URL(localUrl).searchParams.get('token');
+        sendMessage({ status: 'ready_to_download', url: localUrl, token: token, filePath: filePath });
+      });
     }).catch(err => {
       sendMessage({ status: 'error', error: err.message });
     });
@@ -66,10 +73,22 @@ function handleMessage(msg) {
     downloader.downloadHTML5Converted(msg.url, (progressMsg) => {
       sendMessage({ status: 'progress', text: progressMsg });
     }, msg.quality, msg.downloadFolder).then((filePath) => {
-      sendMessage({ status: 'success', filePath: filePath });
+      return localServer.registerFile(filePath).then(localUrl => {
+        const token = new URL(localUrl).searchParams.get('token');
+        sendMessage({ status: 'ready_to_download', url: localUrl, token: token, filePath: filePath });
+      });
     }).catch(err => {
       sendMessage({ status: 'error', error: err.message });
     });
+  } else if (msg.action === 'cleanup') {
+    localServer.unregisterFile(msg.token);
+    if (msg.filePath && fs.existsSync(msg.filePath)) {
+      try {
+        fs.unlinkSync(msg.filePath);
+      } catch (e) {
+        // Ignora erro
+      }
+    }
   } else {
     sendMessage({ status: 'error', error: 'Ação desconhecida: ' + msg.action });
   }

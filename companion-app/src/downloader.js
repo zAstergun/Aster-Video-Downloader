@@ -3,7 +3,6 @@ const path = require('path');
 const os = require('os');
 const https = require('https');
 const http = require('http');
-const ytdl = require('@distube/ytdl-core');
 const m3u8Parser = require('m3u8-parser');
 
 // Helper para sanitize do nome de arquivo
@@ -19,10 +18,9 @@ function downloadYoutube(url, onProgress, cookies = null, quality = null, downlo
     const ytDlpPath = path.join(__dirname, '..', 'bin', 'yt-dlp.exe');
     const executable = fs.existsSync(ytDlpPath) ? ytDlpPath : 'yt-dlp';
 
-    // Configura o output template com base na pasta
-    const baseFolder = downloadFolder ? downloadFolder : path.join(os.homedir(), 'Downloads');
-    // Assegura que o template de nome de arquivo seja compatível
-    const outputTemplate = path.join(baseFolder, 'Aster_Video_%(title)s.%(ext)s');
+    // FASE 0: Arquivo salvo na pasta temporária do sistema
+    const ext = quality === 'audio' ? 'mp3' : 'mp4';
+    const outputPath = path.join(os.tmpdir(), `aster_temp_${Date.now()}.${ext}`);
     
     let formatArg = 'bestvideo+bestaudio/best';
     if (quality === 'audio') {
@@ -36,7 +34,7 @@ function downloadYoutube(url, onProgress, cookies = null, quality = null, downlo
       '--ffmpeg-location', path.join(__dirname, '..', 'bin'),
       '--js-runtimes', 'node',
       '-f', formatArg,
-      '-o', outputTemplate
+      '-o', outputPath
     ];
     
     if (quality === 'audio') {
@@ -79,7 +77,7 @@ function downloadYoutube(url, onProgress, cookies = null, quality = null, downlo
       if (cookiesFile && fs.existsSync(cookiesFile)) fs.unlinkSync(cookiesFile);
       
       if (code === 0) {
-        resolve('Download concluído.');
+        resolve(outputPath);
       } else {
         reject(new Error(`yt-dlp falhou com código ${code}. O arquivo yt-dlp.exe está na pasta bin?`));
       }
@@ -92,12 +90,18 @@ function downloadYoutube(url, onProgress, cookies = null, quality = null, downlo
   });
 }
 
-function fetchHLS(url) {
+function fetchHLS(url, cookies = null) {
   return new Promise((resolve, reject) => {
     const client = url.startsWith('https') ? https : http;
-    client.get(url, (res) => {
+    const options = {};
+    if (cookies && cookies.length > 0) {
+      options.headers = {
+        'Cookie': cookies.map(c => `${c.name}=${c.value}`).join('; ')
+      };
+    }
+    client.get(url, options, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return resolve(fetchHLS(res.headers.location));
+        return resolve(fetchHLS(res.headers.location, cookies));
       }
       if (res.statusCode !== 200) {
         return reject(new Error(`Erro HTTP: ${res.statusCode}`));
@@ -109,14 +113,20 @@ function fetchHLS(url) {
   });
 }
 
-function downloadHLSSegment(segmentUrl, writeStream, maxRetries = 3) {
+function downloadHLSSegment(segmentUrl, writeStream, maxRetries = 3, cookies = null) {
   return new Promise((resolve, reject) => {
     const client = segmentUrl.startsWith('https') ? https : http;
+    const options = {};
+    if (cookies && cookies.length > 0) {
+      options.headers = {
+        'Cookie': cookies.map(c => `${c.name}=${c.value}`).join('; ')
+      };
+    }
     
     const tryDownload = (attempt) => {
-      client.get(segmentUrl, (res) => {
+      client.get(segmentUrl, options, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          return resolve(downloadHLSSegment(res.headers.location, writeStream, maxRetries));
+          return resolve(downloadHLSSegment(res.headers.location, writeStream, maxRetries, cookies));
         }
         if (res.statusCode !== 200) {
           if (attempt < maxRetries) {
@@ -141,10 +151,10 @@ function downloadHLSSegment(segmentUrl, writeStream, maxRetries = 3) {
   });
 }
 
-async function downloadHLS(url, onProgress, quality = null) {
+async function downloadHLS(url, onProgress, quality = null, cookies = null) {
   try {
     onProgress("Analisando playlist HLS principal...");
-    const masterRes = await fetchHLS(url);
+    const masterRes = await fetchHLS(url, cookies);
     const parser = new m3u8Parser.Parser();
     parser.push(masterRes.body);
     parser.end();
@@ -184,7 +194,7 @@ async function downloadHLS(url, onProgress, quality = null) {
       targetUrl = new URL(bestPlaylistUri, masterRes.finalUrl).href;
       
       onProgress("Melhor qualidade HLS selecionada. Obtendo segmentos...");
-      const variantRes = await fetchHLS(targetUrl);
+      const variantRes = await fetchHLS(targetUrl, cookies);
       const variantParser = new m3u8Parser.Parser();
       variantParser.push(variantRes.body);
       variantParser.end();
@@ -198,7 +208,7 @@ async function downloadHLS(url, onProgress, quality = null) {
     const segments = parser.manifest.segments;
     const totalSegments = segments.length;
     
-    const outputPath = path.join(os.homedir(), 'Downloads', `Aster_HLS_${Date.now()}.mp4`);
+    const outputPath = path.join(os.tmpdir(), `Aster_HLS_${Date.now()}.mp4`);
     const fileStream = fs.createWriteStream(outputPath);
 
     for (let i = 0; i < segments.length; i++) {
@@ -208,7 +218,7 @@ async function downloadHLS(url, onProgress, quality = null) {
       const percent = (((i + 1) / totalSegments) * 100).toFixed(1);
       onProgress(`Baixando HLS: ${percent}% (Segmento ${i + 1}/${totalSegments})`);
       
-      await downloadHLSSegment(segmentAbsUrl, fileStream);
+      await downloadHLSSegment(segmentAbsUrl, fileStream, 3, cookies);
     }
 
     fileStream.end();
@@ -256,9 +266,6 @@ function getYouTubeFormats(url, cookies = null) {
         const info = JSON.parse(output);
         if (!info.formats) return resolve([]);
         
-        // DEBUG: Salvar todos os formatos no desktop para investigar por que o 4K não aparece
-        fs.writeFileSync(path.join(os.homedir(), 'Desktop', 'Aster - Video Downloader', 'debug_formats.json'), JSON.stringify(info.formats, null, 2));
-        
         const formatsMap = new Map();
         info.formats.forEach(f => {
           if (f.vcodec !== 'none' && f.height) {
@@ -282,9 +289,9 @@ function getYouTubeFormats(url, cookies = null) {
   });
 }
 
-async function getHLSFormats(url) {
+async function getHLSFormats(url, cookies = null) {
   try {
-    const masterRes = await fetchHLS(url);
+    const masterRes = await fetchHLS(url, cookies);
     const parser = new m3u8Parser.Parser();
     parser.push(masterRes.body);
     parser.end();
@@ -316,7 +323,7 @@ function downloadHTML5Converted(url, onProgress, quality, downloadFolder = null)
     const ffmpegPath = path.join(__dirname, '..', 'bin', 'ffmpeg.exe');
     const executable = fs.existsSync(ffmpegPath) ? ffmpegPath : 'ffmpeg';
     
-    const baseFolder = downloadFolder ? downloadFolder : path.join(os.homedir(), 'Downloads');
+    const baseFolder = os.tmpdir();
     let outputPath = '';
     const args = ['-y', '-i', url];
     

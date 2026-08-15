@@ -6,11 +6,42 @@ const interceptedStreams = new Map();
 const detectedVideosByTab = new Map();
 // Armazenamento de metadados para fallback de streams HLS (Map de tabId -> thumbnail)
 const hlsMetadataByTab = new Map();
+// FASE 0: Armazenamento de downloads ativos do Companion App
+const activeDownloads = new Map();
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("Aster Video Downloader instalado com sucesso.");
   // Abre o Side Panel ao clicar no ícone da extensão
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
+});
+
+// Listener para monitorar o status do download feito pelo Chrome
+chrome.downloads.onChanged.addListener((delta) => {
+  if (activeDownloads.has(delta.id)) {
+    const downloadInfo = activeDownloads.get(delta.id);
+    if (delta.state && (delta.state.current === 'complete' || delta.state.current === 'interrupted')) {
+      // Limpa no companion app
+      downloadInfo.port.postMessage({
+        action: 'cleanup',
+        token: downloadInfo.token,
+        filePath: downloadInfo.filePath
+      });
+      
+      const status = delta.state.current === 'complete' ? 'success' : 'error';
+      chrome.storage.local.get('aster_history', (histData) => {
+         const history = histData.aster_history || [];
+         history.push({
+           url: downloadInfo.url,
+           title: downloadInfo.title || 'Download Concluído',
+           status: status,
+           timestamp: Date.now()
+         });
+         if (history.length > 50) history.shift();
+         chrome.storage.local.set({ aster_history: history });
+      });
+      activeDownloads.delete(delta.id);
+    }
+  }
 });
 
 // Intercepta requisições de rede em busca de m3u8 (HLS)
@@ -172,7 +203,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (request.action === 'download_hls') {
-    startCompanionDownload('download_hls', request.url, null, request.quality, request.title);
+    startCompanionDownload('download_hls', request.url, request.cookies, request.quality, request.title);
     sendResponse({ status: 'started_companion' });
     return true;
   }
@@ -214,13 +245,36 @@ function startCompanionDownload(action, url, cookies = null, quality = null, tit
           // Ignora erro caso o popup esteja fechado
         });
         
-        // FASE 6: Salvar no Histórico
-        if (msg.status === 'success' || msg.status === 'error') {
+        // FASE 6 / FASE 0: Acionar o Chrome ou Salvar Erro
+        if (msg.status === 'ready_to_download') {
+           const suggestedFilename = title ? title.replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'Aster_Video';
+           let ext = 'mp4';
+           if (msg.filePath && msg.filePath.endsWith('.mp3')) ext = 'mp3';
+           
+           chrome.downloads.download({
+             url: msg.url,
+             filename: `${suggestedFilename}.${ext}`,
+             saveAs: true
+           }, (downloadId) => {
+               if (downloadId) {
+                   activeDownloads.set(downloadId, {
+                       port: port,
+                       token: msg.token,
+                       filePath: msg.filePath,
+                       url: url,
+                       title: title
+                   });
+               } else {
+                   // Fallback se download falhar na hora
+                   port.postMessage({ action: 'cleanup', token: msg.token, filePath: msg.filePath });
+               }
+           });
+        } else if (msg.status === 'error') {
           chrome.storage.local.get('aster_history', (histData) => {
              const history = histData.aster_history || [];
              history.push({
                url: url,
-               title: title || 'Download Concluído',
+               title: title || 'Download Falhou',
                status: msg.status,
                timestamp: Date.now()
              });
