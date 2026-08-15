@@ -164,11 +164,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         detectedVideosByTab.set(tabId, []);
       }
       const list = detectedVideosByTab.get(tabId);
-      const existing = list.find(v => v.url === request.video.url);
-      if (!existing) {
+      const existingIdx = list.findIndex(v => v.url === request.video.url);
+      if (existingIdx === -1) {
         list.unshift(request.video); // Mais recente primeiro
-      } else if (!existing.thumbnail && request.video.thumbnail) {
-        existing.thumbnail = request.video.thumbnail; // Atualiza thumbnail
+      } else {
+        const existing = list.splice(existingIdx, 1)[0];
+        if (!existing.thumbnail && request.video.thumbnail) {
+          existing.thumbnail = request.video.thumbnail; // Atualiza thumbnail
+        }
+        list.unshift(existing); // Move para o topo
       }
     }
 

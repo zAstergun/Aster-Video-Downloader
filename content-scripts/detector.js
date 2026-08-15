@@ -257,10 +257,19 @@ function scanForVideos() {
         // Cross-origin ou DRM, thumbnail ficará null
       }
 
-      if (!detectedVideos.has(v.url) || (!detectedVideos.get(v.url).thumbnail && thumbnail)) {
-        v.thumbnail = thumbnail;
+      const isNew = !detectedVideos.has(v.url);
+      const existing = detectedVideos.get(v.url);
+      const needsThumbnailUpdate = !isNew && !existing.thumbnail && thumbnail;
+      const isCurrentPage = v.url === window.location.href || v.url === window.location.href.split('?')[0];
+
+      if (isNew || needsThumbnailUpdate || (isCurrentPage && window.asterLastMainUrl !== v.url)) {
+        v.thumbnail = thumbnail || (existing ? existing.thumbnail : null);
+        detectedVideos.delete(v.url);
         detectedVideos.set(v.url, v);
-        log('[Aster] Novo vídeo detectado:', v.url);
+        
+        if (isCurrentPage) window.asterLastMainUrl = v.url;
+
+        log('[Aster] Novo/Atualizado vídeo detectado:', v.url);
 
         try {
           // Envia em tempo real para o Side Panel via background relay
@@ -270,7 +279,7 @@ function scanForVideos() {
               url: v.url,
               type: v.type,
               title: v.title || null,
-              thumbnail: thumbnail
+              thumbnail: v.thumbnail
             }
           }).catch(() => {
             // Side panel pode estar fechado

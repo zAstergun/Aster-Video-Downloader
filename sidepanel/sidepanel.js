@@ -328,12 +328,16 @@ document.addEventListener('DOMContentLoaded', () => {
   chrome.runtime.onMessage.addListener((request) => {
     if (request.action === 'new_video_detected' && request.tabId === currentTabId) {
       const video = request.video;
-      const existing = detectedVideos.find(v => v.url === video.url);
-      if (!existing) {
+      const existingIdx = detectedVideos.findIndex(v => v.url === video.url);
+      if (existingIdx === -1) {
         detectedVideos.unshift(video);
         renderVideoList();
-      } else if (!existing.thumbnail && video.thumbnail) {
-        existing.thumbnail = video.thumbnail;
+      } else {
+        const existing = detectedVideos.splice(existingIdx, 1)[0];
+        if (!existing.thumbnail && video.thumbnail) {
+          existing.thumbnail = video.thumbnail;
+        }
+        detectedVideos.unshift(existing);
         renderVideoList();
       }
     }
