@@ -1,0 +1,10 @@
+{
+  "name": "com.aster.downloader",
+  "_comment": "IMPORTANTE: Se você carregar a extensão em modo unpacked, atualize o ID abaixo em allowed_origins para bater com o ID gerado pelo Chrome, e rode install.bat novamente.",
+  "description": "Aster Video Downloader Companion App",
+  "path": "run.bat",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://ebdnanhfcfokkbblcjlckhgihjpkkece/"
+  ]
+}

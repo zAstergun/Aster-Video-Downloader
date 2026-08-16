@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "Aster Video Downloader",
+  "version": "1.0.0",
+  "description": "Download videos from any website.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "downloads",
+    "webRequest",
+    "nativeMessaging",
+    "cookies",
+    "sidePanel",
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "assets/i18n.js",
+        "content-scripts/detector.js"
+      ],
+      "run_at": "document_end",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content-scripts/yt-extractor.js"
+      ],
+      "matches": [
+        "*://*.youtube.com/*"
+      ]
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel/sidepanel.html"
+  },
+  "sidebar_action": {
+    "default_icon": "assets/icon.png",
+    "default_title": "Aster",
+    "default_panel": "sidepanel/sidepanel.html"
+  },
+  "action": {
+    "default_icon": {
+      "16": "assets/icon.png",
+      "32": "assets/icon.png",
+      "48": "assets/icon.png",
+      "128": "assets/icon.png"
+    }
+  },
+  "icons": {
+    "16": "assets/icon.png",
+    "32": "assets/icon.png",
+    "48": "assets/icon.png",
+    "128": "assets/icon.png"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA3FBxdXBxRQUFynXkKWsL7WXSOVCF05MU5g5u/kFKESYgbIIV0S1wD80E7rc+klj0ex3fAFklMaipkQpJrhcyYtedaHyLTBXfpA4lbeWMc8CzDzSM+XROWyqLJOQXj0d6+hrDNtAbToAcILueiONRQI2FgO5j0BgpvQOCf6qKVygVzvdazpr1OvVxWrcJIF9R+bL3BthOZCNU/j5QNux7mjy/ClGGS6oe86M+K33hWYhiiLAbfA2dXXiYIG4qe8QBimvLLJbTPPzcT81csSn1MJTpMtFeZ2cHK769MD6QGoD0uTZpdJvD4Pkq3tcqylrwQToNx9n70q6XMbRoR4tW3QIDAQAB"
+}

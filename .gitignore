@@ -1,0 +1,14 @@
+companion-app/bin/
+companion-app/dist/bin/
+companion-app/dist/
+companion-app/dist-installer/
+companion-app/node_modules/
+bin/
+aster-key.pem
+*.exe
+
+# Release build and records
+release_build/
+Aster - Video Downloader/
+Aster-Video-Downloader*.zip
+rebuilt_release.md
